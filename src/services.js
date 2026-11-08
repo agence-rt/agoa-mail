@@ -42,7 +42,7 @@ class Services {
       ragicConfigured: !!this.connections, ready: this.ready, starting: this.starting, error: this.error, mailbox: config.mailbox, allowedDomain: config.allowedDomain
     };
   }
-  emit() { this.listeners.forEach((l) => l(this.snapshot())); }
+  emit() { const sig = JSON.stringify(this.data); if (sig === this._sig) return; this._sig = sig; this.listeners.forEach((l) => l(this.snapshot())); }
   snapshot() { return JSON.parse(JSON.stringify(this.data)); }
 
   /* ---------- démarrage ---------- */
@@ -70,9 +70,15 @@ class Services {
       s.all("mails"), s.all("collaborateurs"), s.all("phases"), s.all("statutsPhase"), s.all("alias"), s.all("avancement"), s.all("regles"), s.all("notifications"), s.all("immeubles"), s.all("syndics"), s.operations()
     ]);
     const byOrder = (a, b) => (a.ordre || 0) - (b.ordre || 0);
+    const actifs = collaborateurs.filter((c) => c.actif !== false);
+    const resolve = (txt) => {   // « Architecte ? » est un prénom libre dans OPERATIONS : on le relie au collaborateur
+      const t = C.norm(txt); if (!t) return "";
+      const c = actifs.find((x) => C.norm(x.nom) === t) || actifs.find((x) => C.norm(x.nom.split(/\s+/)[0]) === t);
+      return c ? c.nom : String(txt).trim();
+    };
     this.data = {
       mails, collaborateurs: collaborateurs.filter((c) => c.actif !== false), phases: phases.filter((p) => p.actif !== false).sort(byOrder), statutsPhase: statutsPhase.sort(byOrder),
-      alias, avancement, regles, notifications, ops,
+      alias, avancement, regles, notifications, ops: ops.map((o) => ({ ...o, archi: resolve(o.archi) })),
       immeubles: immeubles.map((i) => ({ code: i.code, syndic: i.syndic, emails: [i.emailGest, i.emailAssist].filter(Boolean) })),
       syndics: syndics.map((x) => ({ nom: x.nom, emails: [x.email].filter(Boolean) }))
     };
@@ -172,6 +178,53 @@ class Services {
     const dest = [...to, ...cc, ...bcc].map((e) => ({ email: e, nom: "" }));
     const r = C.afterSend(m, { destinataires: dest, mode, by: this.who(), ops: this.data.ops, now: Date.now(), nbCci: bcc.length });
     return this._apply(m, r);
+  }
+
+
+  /* ---------- lecture du détail d'un fil (messages Gmail) et suggestions ---------- */
+  async threadDetail(id) { this.requireSession(); return this.gmail.getThread(id); }
+  suggest(id) {
+    const m = this.mailById(id), ctx = { immeubles: this.data.immeubles, operations: this.data.ops, syndics: this.data.syndics };
+    const det = !m.imm ? C.detect({ objet: m.objet, expEmail: m.expEmail }, ctx) : null;
+    const w = C.findWaiting(this.data.mails, m.expEmail, m.id);
+    return { detect: det, waiting: w && !(m.attendu || []).length ? { id: w.id, objet: w.objet } : null };
+  }
+  /** Rapproche un fil d'un fil « En attente » : le fil source est mémorisé dans Fils rapprochés. */
+  async mergeInto(srcId, dstId) {
+    this.requireSession(); const src = this.mailById(srcId), dst = this.mailById(dstId);
+    const r = C.onIncoming(dst, { email: src.expEmail, nom: src.expediteur, objet: src.objet }, { ops: this.data.ops, now: Date.now(), separate: true, srcThread: src.id });
+    await this._apply(dst, r);
+    await this.requireStore().removeByKey("mails", src.id).catch(() => {});
+    await this.reload();
+  }
+
+  /* ---------- options : collaborateurs, phases, statuts de phase, alias ---------- */
+  async saveRecord(sheet, rec) {
+    this.requireSession(); const s = this.requireStore();
+    if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    const key = s.sheetDef(sheet).key;
+    if (!String(rec[key] || "").trim()) throw Object.assign(new Error("Le nom est obligatoire."), { code: "empty" });
+    if (rec._renameFrom) {   // renommage : on met à jour la fiche existante (même rid), la clé change
+      const rid = s.rids[sheet] && s.rids[sheet].get(rec._renameFrom);
+      if (rid) { await s.client.update(s.sheetDef(sheet).path, rid, s.toFields(sheet, rec)); s.rids[sheet].delete(rec._renameFrom); s.rids[sheet].set(rec[key], rid); }
+      if (sheet === "collaborateurs") await this._renameCollab(rec._renameFrom, rec[key]);
+    } else await s.upsert(sheet, rec);
+    await this.reload();
+  }
+  async _renameCollab(from, to) {
+    const s = this.requireStore();
+    for (const m of this.data.mails) if (m.assigne === from) await s.upsert("mails", { ...m, assigne: to });
+  }
+  /** Supprimer un collaborateur : tous ses fils passent « non attribués ». Les opérations Ragic ne sont pas modifiées. */
+  async removeRecord(sheet, keyValue) {
+    this.requireSession(); const s = this.requireStore();
+    if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    if (sheet === "collaborateurs") {
+      for (const m of this.data.mails) if (m.assigne === keyValue) await s.upsert("mails", { ...m, assigne: "", modifiePar: this.who() });
+      for (const n of this.data.notifications) if (n.pour === keyValue) await s.removeByKey("notifications", n.cle).catch(() => {});
+    }
+    await s.removeByKey(sheet, keyValue);
+    await this.reload();
   }
 
   async markRead(cle) { const s = this.requireStore(); const n = this.data.notifications.find((x) => x.cle === cle); if (n) { await s.upsert("notifications", { ...n, lue: true }); await this.reload(); } }

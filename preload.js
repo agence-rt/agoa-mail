@@ -24,5 +24,10 @@ contextBridge.exposeInMainWorld("agoa", {
   addNote: (id, txt) => call("mail:note", id, txt),
   setPhase: (id, phase, st) => call("mail:phase", id, phase, st),
   send: (id, m) => call("mail:send", id, m),
-  markRead: (cle) => call("notif:read", cle)
+  markRead: (cle) => call("notif:read", cle),
+  thread: (id) => call("mail:thread", id),
+  suggest: (id) => call("mail:suggest", id),
+  mergeInto: (src, dst) => call("mail:merge", src, dst),
+  saveRecord: (sheet, rec) => call("opt:save", sheet, rec),
+  removeRecord: (sheet, key) => call("opt:remove", sheet, key)
 });

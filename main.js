@@ -64,6 +64,11 @@ function registerIpc() {
   handle("mail:phase", (id, phase, st) => svc.setPhaseStatus(id, phase, st));
   handle("mail:send", (id, m) => svc.send(id, m));
   handle("notif:read", (cle) => svc.markRead(cle));
+  handle("mail:thread", (id) => svc.threadDetail(id));
+  handle("mail:suggest", (id) => svc.suggest(id));
+  handle("mail:merge", (src, dst) => svc.mergeInto(src, dst));
+  handle("opt:save", (sheet, rec) => svc.saveRecord(sheet, rec));
+  handle("opt:remove", (sheet, key) => svc.removeRecord(sheet, key));
 }
 
 function createWindow() {
@@ -76,7 +81,7 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (e, url) => { if (!url.startsWith("file://")) e.preventDefault(); });
   win.on("closed", () => { subscribers.clear(); win = null; });
-  win.loadFile(path.join(RENDERER, "gate.html"));
+  win.loadFile(path.join(RENDERER, "index.html"));
 }
 
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
