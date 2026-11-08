@@ -1,0 +1,84 @@
+name: Construire AGOA ML (Windows)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publier:
+        description: "Publier une release avec la version de package.json (v + version)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Identifiants Google (secrets du dépôt)
+        shell: pwsh
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          if (-not $env:GOOGLE_CLIENT_ID -or -not $env:GOOGLE_CLIENT_SECRET) {
+            Write-Warning "Secrets GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET absents : l'installateur sera construit SANS connexion Google."
+          } else {
+            @{ clientId = $env:GOOGLE_CLIENT_ID; clientSecret = $env:GOOGLE_CLIENT_SECRET } | ConvertTo-Json | Set-Content -Encoding utf8 resources/google-client.json
+          }
+
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AGOA-ML-installateur
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Lire la version et vérifier si la release existe déjà
+        id: ver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "v=v$v" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          gh release view "v$v" --repo $env:GITHUB_REPOSITORY *> $null
+          "exists=" + ($LASTEXITCODE -eq 0).ToString().ToLower() | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          $global:LASTEXITCODE = 0
+
+      - name: Publier dans les Releases (nouvelle version sur main, étiquette v* ou lancement manuel)
+        if: steps.ver.outputs.exists != 'true' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' && github.event_name != 'pull_request')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.v }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.exe.blockmap

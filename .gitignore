@@ -1,0 +1,5 @@
+node_modules/
+dist/
+resources/google-client.json
+*.log
+.env
