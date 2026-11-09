@@ -116,10 +116,34 @@ class MailStore extends EventEmitter {
     if (!nrid) {   // Ragic n'a pas renvoyé l'identifiant : on relit la feuille pour retrouver la fiche par sa clé
       this.rids[name] = null; await this.all(name);
       nrid = this.rids[name] && this.rids[name].get(data[key]);
-      if (!nrid) throw new Error(`Ragic n’a pas créé la fiche dans « ${name} » (${def.path}, ${Object.keys(fields).length} champs envoyés ; réponse : ${JSON.stringify(this.client.lastCreate).slice(0, 160)}). Vérifiez les droits d’écriture de la clé Ragic et les champs obligatoires de la feuille.`);
+      if (!nrid) {
+        const why = await this._diagnose(name, fields);
+        throw new Error(`Ragic n’a pas créé la fiche dans « ${name} » (${def.path}, ${Object.keys(fields).length} champs envoyés ; réponse : ${JSON.stringify(this.client.lastCreate).slice(0, 160)}). ${why}`);
+      }
     }
     this.rids[name].set(data[key], nrid);
     return nrid;
+  }
+  /** Une seule fois par session : cherche quel champ fait refuser la création (essais avec la clé + un champ, fiches d'essai supprimées ensuite). */
+  async _diagnose(name, fields) {
+    if (this._diagDone) return "Vérifiez les droits d’écriture de la clé Ragic et les champs obligatoires de la feuille.";
+    this._diagDone = true;
+    const def = this.sheetDef(name), keyId = this.f[name][def.key], labels = {};
+    for (const [k, d] of Object.entries(def.fields)) if (this.f[name][k]) labels[this.f[name][k]] = d.label;
+    const bad = [], made = [];
+    try {
+      const r0 = await this.client.create(def.path, { [keyId]: "_essai" });
+      if (!r0) return "Même la création avec le seul Thread ID est refusée : la clé Ragic n’a probablement pas le droit de créer des fiches dans cette feuille (ou la feuille est verrouillée).";
+      made.push(r0);
+      for (const [id, v] of Object.entries(fields)) {
+        if (String(id) === String(keyId)) continue;
+        const r = await this.client.create(def.path, { [keyId]: "_essai", [id]: v });
+        if (r) made.push(r); else bad.push(labels[id] || id);
+      }
+    } catch (e) { return "Essai interrompu : " + e.message; }
+    let del = "";
+    for (const r of made) { try { await this.client.remove(def.path, r); } catch (e) { del = ` Fiches d’essai « _essai » à supprimer à la main dans Ragic (${made.length}).`; break; } }
+    return bad.length ? "Champ(s) refusé(s) par Ragic : " + bad.join(", ") + "." + del : "Chaque champ passe seul : la combinaison est refusée (champ obligatoire ?)." + del;
   }
   async create(name, data) { return this.client.create(this.sheetDef(name).path, this.toFields(name, data)); }
   async removeByKey(name, keyValue) {
