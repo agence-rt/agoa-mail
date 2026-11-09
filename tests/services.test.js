@@ -171,3 +171,15 @@ test("kanban : sans la feuille Colonnes, l'application fonctionne avec « To do 
   await assert.rejects(svc.setColonne("x", "To do"), (e) => e.code === "no_kanban");
   await fake.close(); svc.stopStore();
 });
+
+test("session Google révoquée : le jeton est oublié, non repris du lanceur, reconnexion demandée", async () => {
+  const store = {}; const v = { get: (k) => store[k], set: (k, x) => { store[k] = x; }, remove: (k) => { delete store[k]; } };
+  const fetchImpl = async () => ({ ok: false, status: 400, json: async () => ({ error: "invalid_grant", error_description: "Token has been expired or revoked." }) });
+  const conn = { ragic: { key: "k" }, google: { refresh_token: "RT", email: "agence@remithollet.fr", client_id: "c" } };
+  const s = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl, openExternal() {}, connections: conn });
+  assert.equal(s.auth.signedIn(), true);
+  await assert.rejects(s.auth.accessToken(), (e) => e.code === "needs_reauth");
+  assert.equal(s.auth.signedIn(), false);
+  const s2 = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl, openExternal() {}, connections: conn });
+  assert.equal(s2.auth.signedIn(), false, "le jeton refusé n’est pas repris");
+});

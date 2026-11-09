@@ -85,7 +85,15 @@ class GoogleAuth {
     if (this.access && this.access.exp > Date.now()) return this.access.token;
     const refresh = this.vault.get("google_refresh");
     if (!refresh) throw new AuthError("needs_reauth", "Connectez-vous à Google.");
-    const tok = await this._token({ client_id: this.clientId, client_secret: this.clientSecret, refresh_token: refresh, grant_type: "refresh_token" });
+    let tok;
+    try { tok = await this._token({ client_id: this.clientId, client_secret: this.clientSecret, refresh_token: refresh, grant_type: "refresh_token" }); }
+    catch (e) {
+      if (e.code === "needs_reauth") {   // session refusée par Google : on l'oublie pour proposer une nouvelle connexion (et ne pas la reprendre du lanceur)
+        this.vault.set("google_rejected", refresh); this.vault.remove("google_refresh"); this.vault.remove("google_profile"); this.access = null;
+        throw new AuthError("needs_reauth", "La session Google est expirée ou a été révoquée : reconnectez-vous.");
+      }
+      throw e;
+    }
     this.access = { token: tok.access_token, exp: Date.now() + (tok.expires_in - 60) * 1000 };
     return this.access.token;
   }
