@@ -1,7 +1,7 @@
 {
   "name": "agoa-mail",
   "productName": "AGOA ML",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AGOA ML — boîte mail partagée de l'agence (Gmail + Ragic), Rémi Thollet Architecte",
   "author": "Rémi Thollet Architecte",
   "license": "UNLICENSED",
