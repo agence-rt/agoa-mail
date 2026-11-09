@@ -74,7 +74,7 @@
   /* ---------- rendu ---------- */
   function renderGate() {
     var g = $("gate"), app = $("app"), h = "";
-    var ready = ST && ST.signedIn && ST.ragicConfigured && ST.ready;
+    var ready = ST && ST.signedIn && ST.ragicConfigured && ST.ready && ST.collaborateur;
     g.hidden = !!ready; app.hidden = !ready;
     if (ready) return false;
     if (!ST) { g.innerHTML = '<div class="gc"><h1>AGOA ML</h1><p>Chargement…</p></div>'; return true; }
@@ -84,6 +84,9 @@
       h = "<h1>Connexion</h1><p>Connectez-vous avec un compte Google de l’agence (@" + esc(ST.allowedDomain) + ") qui a accès à la boîte " + esc(ST.mailbox) + ".</p>" +
         (ST.googleConfigured ? "" : '<p class="sync bad">Cette version n’a pas d’identifiants Google : voir le README (section Google).</p>') +
         '<button class="btn primary" id="gsign"' + (ST.googleConfigured ? "" : " disabled") + ">Se connecter avec Google</button>";
+    } else if (ST.ready && !ST.collaborateur) {
+      h = "<h1>Qui êtes-vous ?</h1><p>Tout le monde utilise la boîte " + esc(ST.mailbox) + ". Choisissez votre nom : il sera retenu sur ce poste et utilisé pour les notifications et le journal.</p><div class=\"pick\">" +
+        (ST.collaborateurs || []).map(function (n) { return '<button class="pk" data-me="' + esc(n) + '">' + avatar(n) + esc(n) + "</button>"; }).join("") + "</div>" + (ST.collaborateurs && ST.collaborateurs.length ? "" : "<p class=\"sync bad\">La feuille Collaborateurs est vide.</p>");
     } else if (ST.starting) {
       h = "<h1>Connexion à Ragic…</h1><p>Chargement de la base de l’agence.</p>";
     } else {
@@ -92,6 +95,7 @@
         '<button class="btn primary" id="gretry">Réessayer</button>';
     }
     g.innerHTML = '<div class="gc">' + h + "</div>";
+    g.querySelectorAll("[data-me]").forEach(function (x) { x.onclick = function () { agoa.setMe(x.dataset.me).then(function (s) { ST = s; renderAll(); loadData().then(function () { return doSync(false); }); }, fail); }; });
     var b = $("gsign"); if (b) b.onclick = function () { b.disabled = true; b.textContent = "En attente de Google…"; agoa.signIn().then(function (s) { ST = s; renderAll(); startAfterLogin(); }, function (e) { fail(e); b.disabled = false; b.textContent = "Se connecter avec Google"; }); };
     b = $("gretry"); if (b) b.onclick = function () { b.disabled = true; agoa.retry().then(function (s) { ST = s; renderAll(); if (s.ready) loadData(); }, fail); };
     return true;
@@ -100,7 +104,7 @@
   function renderWho() {
     var mine = D.notifications.filter(function (n) { return n.pour === me(); }).sort(function (a, b) { return ts(b.date) - ts(a.date); });
     var unread = mine.filter(function (n) { return !n.lue; });
-    $("who").innerHTML = '<span>' + (me() ? esc(me()) : esc((ST.user && ST.user.name) || "")) + "</span>" + (me() ? "" : '<span class="meta" title="Votre adresse n’est pas dans la feuille Collaborateurs">(sans fiche collaborateur)</span>');
+    $("who").innerHTML = "<span>Je suis</span>" + '<select id="me" data-change="me" aria-label="Qui êtes-vous ?">' + D.collaborateurs.map(function (c) { return "<option" + (c.nom === me() ? " selected" : "") + ">" + esc(c.nom) + "</option>"; }).join("") + "</select>";
     var panel = "";
     if (ui.bell) {
       panel = '<div class="bell-panel" role="dialog" aria-label="Notifications"><h3>Notifications<button data-action="readall">Tout marquer comme lu</button></h3>' +
@@ -341,6 +345,7 @@
   document.addEventListener("change", function (e) {
     var t = e.target, m = mail(ui.sel), k = t.dataset && t.dataset.change;
     if (t.dataset && t.dataset.f && t.closest("[data-sheet]")) { var row = t.closest("[data-sheet]"), f = t.dataset.f, v = t.type === "checkbox" ? t.checked : t.value; var p = {}; p[f] = typeof v === "string" ? v.trim() : v; saveRow(row, p); return; }
+    if (k === "me") { agoa.setMe(t.value).then(function (s) { ST = s; ui.person = ""; renderAll(); }, fail); return; }
     if (!k || !m) return;
     if (k === "statut") act(agoa.setStatut(m.id, t.value), "Statut mis à jour");
     else if (k === "assigne") act(agoa.transfer(m.id, t.value, ""), t.value ? "Fil transmis à " + t.value : "Fil rendu");

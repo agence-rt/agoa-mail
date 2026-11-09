@@ -24,21 +24,37 @@ class Services {
     this.connections = connections === undefined ? readConnections() : connections;
     this.auth = new GoogleAuth({ clientId: googleClient.clientId, clientSecret: googleClient.clientSecret, scopes: config.googleScopes, allowedDomain: config.allowedDomain, openExternal, vault, fetchImpl });
     this.gmail = new Gmail({ auth: this.auth, fetchImpl });
+    this._seedGoogle(googleClient);
     this.store = null; this.error = null; this.ready = false; this.starting = false;
     this.data = { mails: [], collaborateurs: [], phases: [], statutsPhase: [], alias: [], avancement: [], regles: [], notifications: [], ops: [], immeubles: [], syndics: [] };
     this.listeners = new Set(); this.timers = [];
   }
 
-  me() { const u = this.auth.user(); return u ? u.email : ""; }
-  /** Collaborateur correspondant au compte Google connecté (par e-mail). */
+  /** Tout le monde utilise le même compte Google (agence@) : le jeton du lanceur est repris tel quel, sans nouvelle connexion. */
+  _seedGoogle(googleClient) {
+    const g = this.connections && this.connections.google;
+    if (!g || !g.refresh_token || this.auth.signedIn() || !googleClient.clientId) return;
+    if (g.client_id && g.client_id !== googleClient.clientId) { this.log("jeton Google du lanceur émis pour un autre client_id : connexion manuelle"); return; }
+    const email = String(g.email || "").toLowerCase();
+    if (!email.endsWith("@" + config.allowedDomain)) return;
+    this.vault.set("google_refresh", g.refresh_token);
+    this.vault.set("google_profile", JSON.stringify({ email, name: g.name || email, picture: "", canSend: String(g.scopes || "").includes("gmail.send") || undefined }));
+  }
+
+  /** « Qui suis-je ? » : le compte Google est commun, on retient sur ce poste le collaborateur choisi. */
   collaborateur() {
-    const e = this.me().toLowerCase();
-    return this.data.collaborateurs.find((c) => String(c.email).toLowerCase() === e) || null;
+    const nom = this.vault.get("me");
+    return (nom && this.data.collaborateurs.find((c) => c.nom === nom)) || null;
+  }
+  setMe(nom) {
+    if (!this.data.collaborateurs.some((c) => c.nom === nom)) throw Object.assign(new Error("Collaborateur inconnu."), { code: "not_found" });
+    this.vault.set("me", nom); this._sig = null; this.emit();
+    return this.state();
   }
 
   state() {
     return {
-      googleConfigured: this.auth.configured, signedIn: this.auth.signedIn(), user: this.auth.user(), collaborateur: this.collaborateur(),
+      googleConfigured: this.auth.configured, signedIn: this.auth.signedIn(), user: this.auth.user(), collaborateur: this.collaborateur(), collaborateurs: this.data.collaborateurs.map((c) => c.nom),
       ragicConfigured: !!this.connections, ready: this.ready, starting: this.starting, error: this.error, mailbox: config.mailbox, allowedDomain: config.allowedDomain
     };
   }
@@ -89,7 +105,8 @@ class Services {
 
   requireStore() { if (!this.store || !this.ready) throw Object.assign(new Error("Base Ragic non connectée."), { code: "not_ready" }); return this.store; }
   requireSession() { if (!this.auth.signedIn()) throw Object.assign(new Error("Connectez-vous à Google."), { code: "needs_reauth" }); }
-  who() { const c = this.collaborateur(); return c ? c.nom : this.auth.user() ? this.auth.user().name : ""; }
+  requireActor() { this.requireSession(); if (!this.who()) throw Object.assign(new Error("Choisissez d’abord qui vous êtes (en haut à droite)."), { code: "no_actor" }); }
+  who() { const c = this.collaborateur(); return c ? c.nom : ""; }
   valideurs() { return this.data.collaborateurs.filter((c) => c.valideur).map((c) => c.nom); }
 
   /* ---------- synchronisation Gmail ---------- */
@@ -118,15 +135,15 @@ class Services {
   }
   mailById(id) { const m = this.data.mails.find((x) => x.id === id); if (!m) throw Object.assign(new Error("Fil introuvable."), { code: "not_found" }); return m; }
 
-  async setStatut(id, statut) { this.requireSession(); return this._apply(this.mailById(id), C.setStatut(this.mailById(id), statut, { by: this.who(), ops: this.data.ops, valideurs: this.valideurs(), now: Date.now() })); }
-  async transfer(id, to, motif) { this.requireSession(); return this._apply(this.mailById(id), C.transfer(this.mailById(id), to, { by: this.who(), motif, ops: this.data.ops, now: Date.now() })); }
-  async setRelance(id, iso) { this.requireSession(); const m = this.mailById(id); return this._apply(m, { mail: { ...m, relance: iso || "" }, journal: [{ t: Date.now(), par: this.who(), texte: iso ? "a programmé une relance" : "a retiré la relance" }], notifs: [] }); }
+  async setStatut(id, statut) { this.requireActor(); return this._apply(this.mailById(id), C.setStatut(this.mailById(id), statut, { by: this.who(), ops: this.data.ops, valideurs: this.valideurs(), now: Date.now() })); }
+  async transfer(id, to, motif) { this.requireActor(); return this._apply(this.mailById(id), C.transfer(this.mailById(id), to, { by: this.who(), motif, ops: this.data.ops, now: Date.now() })); }
+  async setRelance(id, iso) { this.requireActor(); const m = this.mailById(id); return this._apply(m, { mail: { ...m, relance: iso || "" }, journal: [{ t: Date.now(), par: this.who(), texte: iso ? "a programmé une relance" : "a retiré la relance" }], notifs: [] }); }
   async link(id, { imm, op }) {
-    this.requireSession(); const m = this.mailById(id), o = op ? this.data.ops.find((x) => x.code === op) : null;
+    this.requireActor(); const m = this.mailById(id), o = op ? this.data.ops.find((x) => x.code === op) : null;
     return this._apply(m, { mail: { ...m, imm: imm || "", op: op || "", opRid: o ? o.rid : 0 }, journal: [{ t: Date.now(), par: this.who(), texte: `a rattaché le fil à ${op || imm || "aucun dossier"}` }], notifs: [] });
   }
   async addNote(id, texte) {
-    this.requireSession(); const m = this.mailById(id), by = this.who(), now = Date.now(), txt = String(texte || "").trim();
+    this.requireActor(); const m = this.mailById(id), by = this.who(), now = Date.now(), txt = String(texte || "").trim();
     if (!txt) throw Object.assign(new Error("Écrivez une note."), { code: "empty" });
     const notifs = [], done = new Set();
     for (const c of this.data.collaborateurs) {
@@ -140,7 +157,7 @@ class Services {
 
   /** Statut d'une phase pour un fil : enregistré dans Avancement opérations, puis règles vers OPERATIONS si la fiche existe. */
   async setPhaseStatus(id, phase, statutPhase) {
-    this.requireSession(); const s = this.requireStore(), m = this.mailById(id), by = this.who(), now = Date.now();
+    this.requireActor(); const s = this.requireStore(), m = this.mailById(id), by = this.who(), now = Date.now();
     const code = m.op || m.imm; if (!code) throw Object.assign(new Error("Rattachez d’abord le fil à un immeuble ou une opération."), { code: "no_link" });
     const o = m.op ? this.data.ops.find((x) => x.code === m.op) : null;
     await s.upsert("avancement", { cle: `${code}|${phase}`, codeOp: code, imm: m.imm, phase, statutPhase, date: new Date(now).toISOString(), par: by, thread: id, opRid: o ? o.rid : 0 });
@@ -172,7 +189,7 @@ class Services {
 
   /** Envoi réel par Gmail, puis mise à jour du fil (statut « En attente » si demandé). */
   async send(id, { to = [], cc = [], bcc = [], subject, body, from, mode }) {
-    this.requireSession(); const m = this.mailById(id);
+    this.requireActor(); const m = this.mailById(id);
     if (!to.length && !bcc.length) throw Object.assign(new Error("Ajoutez au moins un destinataire."), { code: "empty" });
     await this.gmail.send({ from: from || config.mailbox, to, cc, bcc, subject: subject || m.objet, body, threadId: m.id });
     const dest = [...to, ...cc, ...bcc].map((e) => ({ email: e, nom: "" }));
@@ -191,7 +208,7 @@ class Services {
   }
   /** Rapproche un fil d'un fil « En attente » : le fil source est mémorisé dans Fils rapprochés. */
   async mergeInto(srcId, dstId) {
-    this.requireSession(); const src = this.mailById(srcId), dst = this.mailById(dstId);
+    this.requireActor(); const src = this.mailById(srcId), dst = this.mailById(dstId);
     const r = C.onIncoming(dst, { email: src.expEmail, nom: src.expediteur, objet: src.objet }, { ops: this.data.ops, now: Date.now(), separate: true, srcThread: src.id });
     await this._apply(dst, r);
     await this.requireStore().removeByKey("mails", src.id).catch(() => {});
@@ -200,7 +217,7 @@ class Services {
 
   /* ---------- options : collaborateurs, phases, statuts de phase, alias ---------- */
   async saveRecord(sheet, rec) {
-    this.requireSession(); const s = this.requireStore();
+    this.requireActor(); const s = this.requireStore();
     if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
     const key = s.sheetDef(sheet).key;
     if (!String(rec[key] || "").trim()) throw Object.assign(new Error("Le nom est obligatoire."), { code: "empty" });
@@ -217,7 +234,7 @@ class Services {
   }
   /** Supprimer un collaborateur : tous ses fils passent « non attribués ». Les opérations Ragic ne sont pas modifiées. */
   async removeRecord(sheet, keyValue) {
-    this.requireSession(); const s = this.requireStore();
+    this.requireActor(); const s = this.requireStore();
     if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
     if (sheet === "collaborateurs") {
       for (const m of this.data.mails) if (m.assigne === keyValue) await s.upsert("mails", { ...m, assigne: "", modifiePar: this.who() });

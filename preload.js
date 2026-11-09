@@ -11,6 +11,7 @@ ipcRenderer.on("data:update", (_e, data) => handlers.forEach((fn) => fn(data)));
 
 contextBridge.exposeInMainWorld("agoa", {
   state: () => call("app:state"),
+  setMe: (nom) => call("app:setMe", nom),
   signIn: () => call("auth:signIn"),
   signOut: () => call("auth:signOut"),
   retry: () => call("ragic:retry"),

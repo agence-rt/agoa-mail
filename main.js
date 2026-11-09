@@ -51,6 +51,7 @@ function handle(name, fn) {
 
 function registerIpc() {
   handle("app:state", () => svc.state());
+  handle("app:setMe", (nom) => svc.setMe(nom));
   handle("auth:signIn", async () => { await svc.auth.signIn(); return svc.state(); });
   handle("auth:signOut", async () => { await svc.signOut(); return svc.state(); });
   handle("ragic:retry", async () => { await svc.startStore(); return svc.state(); });

@@ -26,11 +26,11 @@ function boot() {
   const w = dom.window;
   const rec = (name, ret) => (...a) => { calls.push([name, ...a]); return Promise.resolve(ret === undefined ? true : ret); };
   w.agoa = {
-    state: () => Promise.resolve({ googleConfigured: true, signedIn: true, ragicConfigured: true, ready: true, user: { email: "dieu@remithollet.fr", name: "Dieu" }, collaborateur: { nom: "Dieu" }, mailbox: "agence@remithollet.fr", allowedDomain: "remithollet.fr" }),
+    state: () => Promise.resolve({ googleConfigured: true, signedIn: true, ragicConfigured: true, ready: true, user: { email: "dieu@remithollet.fr", name: "Dieu" }, collaborateur: { nom: "Dieu" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr", allowedDomain: "remithollet.fr" }),
     data: () => Promise.resolve(data()), onData() {}, sync: () => Promise.resolve({ updated: 0 }),
     thread: () => Promise.resolve({ messages: [{ from: { nom: "A", email: "a@e.fr" }, to: [{ email: "agence@remithollet.fr" }], t: NOW, snippet: "Voici notre devis" }] }),
     suggest: (id) => Promise.resolve(id === "t3" ? { detect: { imm: "DELTA14", op: "DELTA14-A", why: "Le code figure." }, waiting: null } : { detect: null, waiting: null }),
-    setStatut: rec("statut"), transfer: rec("transfer"), setRelance: rec("relance"), link: rec("link"), addNote: rec("note"), setPhase: rec("phase"), send: rec("send"), markRead: rec("read"), mergeInto: rec("merge"), saveRecord: rec("save"), removeRecord: rec("remove")
+    setMe: () => Promise.resolve({ signedIn: true, ragicConfigured: true, ready: true, collaborateur: { nom: "Marie" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr" }), setStatut: rec("statut"), transfer: rec("transfer"), setRelance: rec("relance"), link: rec("link"), addNote: rec("note"), setPhase: rec("phase"), send: rec("send"), markRead: rec("read"), mergeInto: rec("merge"), saveRecord: rec("save"), removeRecord: rec("remove")
   };
   wins.push(w);
   w.eval(fs.readFileSync(path.join(__dirname, "..", "renderer", "app.js"), "utf8"));
@@ -107,4 +107,11 @@ test("options : suppression d'un collaborateur avec confirmation", async () => {
   assert.match(doc.getElementById("modal").textContent, /1 fil qui lui est attribué passera en « non attribué »/);
   click(w, doc.querySelector('[data-action="dodelcollab"]')); await tick();
   assert.deepEqual(calls.find((c) => c[0] === "remove"), ["remove", "collaborateurs", "Marie"]);
+});
+
+test("qui suis-je : le choix se fait en haut et se retient", async () => {
+  const { w, doc, calls } = boot(); await tick();
+  assert.equal(doc.getElementById("me").value, "Dieu");
+  const sel = doc.getElementById("me"); sel.value = "Marie"; sel.dispatchEvent(new w.Event("change", { bubbles: true })); await tick();
+  assert.ok(doc.getElementById("me"));
 });

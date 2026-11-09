@@ -24,7 +24,8 @@ const gm = (id, t, from, to, subject) => ({ id, internalDate: String(t), payload
 async function boot(threads = []) {
   const fake = await makeFake();
   const fetchImpl = googleStub(threads);
-  const vault = { get: (k) => ({ google_refresh: "r", google_profile: JSON.stringify({ email: "dieu@remithollet.fr", name: "Dieu" }) })[k] };
+  const store = { google_refresh: "r", google_profile: JSON.stringify({ email: "agence@remithollet.fr", name: "Agence" }), me: "Dieu" };
+  const vault = { get: (k) => store[k], set: (k, v) => { store[k] = v; } };
   const svc = new Services({ vault, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl, ragicProtocol: "http", openExternal() {}, connections: { ragic: { key: "KEY", host: fake.host, apname: "agoa" } } });
   await svc.startStore();
   assert.equal(svc.error, null, svc.error && svc.error.message);
@@ -102,5 +103,18 @@ test("phase : règle appliquée si l'opération existe, information conservée s
   await svc.reload();
   assert.equal(await svc.reconcileAvancement(), 1);
   assert.match(String(fake.sheets[o.path].recs.get(rid2)[1000282]), /^\d{4}\//);
+  await fake.close(); svc.stopStore();
+});
+
+test("compte commun : « qui suis-je » retenu, actions refusées sans choix, jeton du lanceur repris", async () => {
+  const { fake, svc } = await boot([]);
+  assert.equal(svc.state().collaborateur.nom, "Dieu");
+  assert.throws(() => svc.setMe("Inconnu"), /inconnu/i);
+  svc.vault.set("me", "");
+  await assert.rejects(svc.setStatut("x", "traite"), (e) => e.code === "no_actor");
+  svc.setMe("Rémi"); assert.equal(svc.who(), "Rémi");
+  const store = {}; const v = { get: (k) => store[k], set: (k, x) => { store[k] = x; } };
+  const s2 = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl: fetch, openExternal() {}, connections: { ragic: { key: "k" }, google: { refresh_token: "RT", email: "agence@remithollet.fr", client_id: "c" } } });
+  assert.equal(s2.auth.signedIn(), true);
   await fake.close(); svc.stopStore();
 });
