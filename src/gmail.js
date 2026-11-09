@@ -39,7 +39,14 @@ class Gmail {
     const token = await this.auth.accessToken();
     const res = await this.fetch(BASE + path, { headers: { Authorization: "Bearer " + token } });
     if (res.status === 401) throw new GmailError("needs_reauth", "Session Google expirée : reconnectez-vous.", 401);
-    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new GmailError("gmail", (j.error && j.error.message) || "Gmail a répondu " + res.status, res.status); }
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 403 && /scope|insufficient/i.test(JSON.stringify(j))) {   // session sans le droit de lecture : on l'oublie pour obtenir une nouvelle autorisation complète
+        this.auth.forget && this.auth.forget();
+        throw new GmailError("needs_reauth", "La session Google n’a pas le droit de lire la boîte. Reconnectez-vous et cochez TOUS les droits demandés (lecture et modification des e-mails).", 403);
+      }
+      throw new GmailError("gmail", (j.error && j.error.message) || "Gmail a répondu " + res.status, res.status);
+    }
     return res.json();
   }
   /** Fils récents : [{ id, historyId }]. */

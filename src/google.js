@@ -73,6 +73,8 @@ class GoogleAuth {
       const tok = await this._token({ code, client_id: this.clientId, client_secret: this.clientSecret, redirect_uri: redirect, grant_type: "authorization_code", code_verifier: verifier });
       const profile = this._checkProfile(decodeIdToken(tok.id_token));
       if (!tok.refresh_token) throw new AuthError("token", "Google n’a pas fourni de session durable. Réessayez.");
+      if (tok.scope && !String(tok.scope).includes("gmail.modify"))
+        throw new AuthError("scope", "Le droit de lire et modifier les e-mails n’a pas été accordé. Recommencez et cochez TOUTES les cases sur l’écran Google.");
       profile.canSend = String(tok.scope || "").includes("gmail.send");
       this.vault.set("google_refresh", tok.refresh_token);
       this.vault.set("google_profile", JSON.stringify(profile));
@@ -96,6 +98,13 @@ class GoogleAuth {
     }
     this.access = { token: tok.access_token, exp: Date.now() + (tok.expires_in - 60) * 1000 };
     return this.access.token;
+  }
+
+  /** Oublie la session actuelle (refusée ou insuffisante) sans la reprendre du lanceur. */
+  forget() {
+    const r = this.vault.get("google_refresh");
+    if (r) this.vault.set("google_rejected", r);
+    this.vault.remove("google_refresh"); this.vault.remove("google_profile"); this.access = null;
   }
 
   async signOut() {

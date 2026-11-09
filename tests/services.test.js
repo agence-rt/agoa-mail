@@ -183,3 +183,14 @@ test("session Google révoquée : le jeton est oublié, non repris du lanceur, r
   const s2 = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl, openExternal() {}, connections: conn });
   assert.equal(s2.auth.signedIn(), false, "le jeton refusé n’est pas repris");
 });
+
+test("Gmail refuse faute de droits : la session est oubliée et la reconnexion complète demandée", async () => {
+  const store = { google_refresh: "RT", google_profile: JSON.stringify({ email: "agence@remithollet.fr" }) };
+  const v = { get: (k) => store[k], set: (k, x) => { store[k] = x; }, remove: (k) => { delete store[k]; } };
+  const fetchImpl = async (url) => /oauth2/.test(String(url))
+    ? { ok: true, status: 200, json: async () => ({ access_token: "A", expires_in: 3600 }) }
+    : { ok: false, status: 403, json: async () => ({ error: { message: "Request had insufficient authentication scopes." } }) };
+  const s = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl, openExternal() {}, connections: { ragic: { key: "k" } } });
+  await assert.rejects(s.gmail.listThreads({ q: "" }), (e) => e.code === "needs_reauth" && /TOUS les droits/.test(e.message));
+  assert.equal(s.auth.signedIn(), false);
+});
