@@ -67,11 +67,13 @@ class RagicClient {
     return k ? Object.assign({ _ragicId: Number(k) }, json[k]) : null;
   }
 
-  /** Crée une fiche. fields : { fieldId: valeur }. Retourne l'identifiant Ragic (rootNodeId). */
+  /** Crée une fiche. fields : { fieldId: valeur }. Retourne l'identifiant Ragic (rootNodeId), ou null si la réponse ne le contient pas. */
   async create(path, fields) {
     const json = await this._call("POST", this.url(path, []), fields);
-    if (!json || !json.rv) throw new RagicError("bad_response", "Ragic n’a pas renvoyé l’identifiant de la fiche créée (réponse : " + JSON.stringify(json).slice(0, 200) + ").");
-    return Number(json.rv);
+    this.lastCreate = json;
+    const d = json && json.data && typeof json.data === "object" ? json.data : null;
+    const id = json && (json.rv || json.ragicId || json._ragicId) || d && (d._ragicId || Object.keys(d).find((k) => /^\d+$/.test(k)));
+    return id ? Number(id) : null;       // null : Ragic n'a pas donné l'identifiant (le magasin retrouve alors la fiche par sa clé)
   }
 
   async update(path, rid, fields) {

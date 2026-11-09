@@ -112,7 +112,12 @@ class MailStore extends EventEmitter {
     const rid = this.rids[name].get(data[key]);
     const fields = this.toFields(name, data);
     if (rid) { await this.client.update(def.path, rid, fields); return rid; }
-    const nrid = await this.client.create(def.path, fields);
+    let nrid = await this.client.create(def.path, fields);
+    if (!nrid) {   // Ragic n'a pas renvoyé l'identifiant : on relit la feuille pour retrouver la fiche par sa clé
+      this.rids[name] = null; await this.all(name);
+      nrid = this.rids[name] && this.rids[name].get(data[key]);
+      if (!nrid) throw new Error(`Ragic n’a pas créé la fiche dans « ${name} » (${def.path}, ${Object.keys(fields).length} champs envoyés ; réponse : ${JSON.stringify(this.client.lastCreate).slice(0, 160)}). Vérifiez les droits d’écriture de la clé Ragic et les champs obligatoires de la feuille.`);
+    }
     this.rids[name].set(data[key], nrid);
     return nrid;
   }
