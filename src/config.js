@@ -15,7 +15,7 @@ module.exports = {
   googleScopes: ["openid", "email", "profile", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"],
   /* valeurs de la liste « Statut » de la feuille Mails */
   statutsRagic: { nouveau: "Nouveau", urgent: "Urgent", atraiter: "A traiter", attente: "En attente", avalider: "A valider", traite: "Traité" },
-  gmailQuery: "in:inbox OR in:sent",
+  gmailQuery: "newer_than:30d -in:drafts",   // tout sauf spam/corbeille : les filtres Gmail des alias archivent les messages (pas de libellé INBOX)
   syncMs: 60000,
   ragic: {
     apname: "agoa",
