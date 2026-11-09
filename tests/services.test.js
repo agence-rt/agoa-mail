@@ -116,6 +116,9 @@ test("compte commun : « qui suis-je » retenu, actions refusées sans choix, je
   const store = {}; const v = { get: (k) => store[k], set: (k, x) => { store[k] = x; } };
   const s2 = new Services({ vault: v, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl: fetch, openExternal() {}, connections: { ragic: { key: "k" }, google: { refresh_token: "RT", email: "agence@remithollet.fr", client_id: "c" } } });
   assert.equal(s2.auth.signedIn(), true);
+  const store3 = {}; const v3 = { get: (k) => store3[k], set: (k, x) => { store3[k] = x; } };
+  const s3 = new Services({ vault: v3, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl: fetch, openExternal() {}, connections: { ragic: { key: "k" }, google: { refresh_token: "RT", email: "agence@remithollet.fr", client_id: "c", scopes: "https://www.googleapis.com/auth/gmail.send" } } });
+  assert.equal(s3.auth.signedIn(), false, "un jeton limité à l’envoi n’est pas repris");
   await fake.close(); svc.stopStore();
 });
 

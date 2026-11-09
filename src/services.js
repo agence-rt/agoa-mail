@@ -35,6 +35,7 @@ class Services {
     const g = this.connections && this.connections.google;
     if (!g || !g.refresh_token || this.auth.signedIn() || !googleClient.clientId) return;
     if (g.client_id && g.client_id !== googleClient.clientId) { this.log("jeton Google du lanceur émis pour un autre client_id : connexion manuelle"); return; }
+    if (g.scopes && !String(g.scopes).includes("gmail.modify")) { this.log("jeton Google du lanceur limité à l’envoi (pas de gmail.modify) : connexion Google à faire dans l’application"); return; }
     const email = String(g.email || "").toLowerCase();
     if (!email.endsWith("@" + config.allowedDomain)) return;
     this.vault.set("google_refresh", g.refresh_token);
