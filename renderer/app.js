@@ -89,7 +89,9 @@
     } else if (!ST.signedIn) {
       h = "<h1>Connexion</h1><p>Connectez-vous avec un compte Google de l’agence (@" + esc(ST.allowedDomain) + ") qui a accès à la boîte " + esc(ST.mailbox) + ".</p>" +
         (ST.googleConfigured ? "" : '<p class="sync bad">Cette version n’a pas d’identifiants Google : voir le README (section Google).</p>') +
-        '<button class="btn primary" id="gsign"' + (ST.googleConfigured ? "" : " disabled") + ">Se connecter avec Google</button>";
+        '<button class="btn primary" id="gsign"' + (ST.googleConfigured && !ui.signing ? "" : " disabled") + ">" + (ui.signing ? "En attente de Google…" : "Se connecter avec Google") + "</button>" +
+        (ui.signing ? "<p class=\"sync\">Une page Google doit s’ouvrir dans votre navigateur (regardez dans la barre des tâches si elle n’apparaît pas). Choisissez le compte agence@ puis acceptez tous les droits demandés.</p>" : "") +
+        (ui.signErr ? '<p class="sync bad">' + esc(ui.signErr) + "</p>" : "");
     } else if (ST.ready && !ST.collaborateur) {
       h = "<h1>Qui êtes-vous ?</h1><p>Tout le monde utilise la boîte " + esc(ST.mailbox) + ". Choisissez votre nom : il sera retenu sur ce poste et utilisé pour les notifications et le journal.</p><div class=\"pick\">" +
         (ST.collaborateurs || []).map(function (n) { return '<button class="pk" data-me="' + esc(n) + '">' + avatar(n) + esc(n) + "</button>"; }).join("") + "</div>" + (ST.collaborateurs && ST.collaborateurs.length ? "" : "<p class=\"sync bad\">La feuille Collaborateurs est vide.</p>");
@@ -102,7 +104,7 @@
     }
     g.innerHTML = '<div class="gc">' + h + "</div>";
     g.querySelectorAll("[data-me]").forEach(function (x) { x.onclick = function () { agoa.setMe(x.dataset.me).then(function (s) { ST = s; renderAll(); loadData().then(function () { return doSync(false); }); }, fail); }; });
-    var b = $("gsign"); if (b) b.onclick = function () { b.disabled = true; b.textContent = "En attente de Google…"; agoa.signIn().then(function (s) { ST = s; renderAll(); startAfterLogin(); }, function (e) { fail(e); b.disabled = false; b.textContent = "Se connecter avec Google"; }); };
+    var b = $("gsign"); if (b) b.onclick = function () { ui.signing = true; ui.signErr = ""; renderAll(); agoa.signIn().then(function (s) { ui.signing = false; ST = s; renderAll(); startAfterLogin(); }, function (e) { ui.signing = false; ui.signErr = (e && e.message) || "Connexion Google impossible."; fail(e); renderAll(); }); };
     b = $("gretry"); if (b) b.onclick = function () { b.disabled = true; agoa.retry().then(function (s) { ST = s; renderAll(); if (s.ready) loadData(); }, fail); };
     return true;
   }
