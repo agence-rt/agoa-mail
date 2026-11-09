@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("agoa", {
   setStatut: (id, s) => call("mail:statut", id, s),
   transfer: (id, to, motif) => call("mail:transfer", id, to, motif),
   setRelance: (id, iso) => call("mail:relance", id, iso),
+  setColonne: (id, nom) => call("mail:colonne", id, nom),
   link: (id, l) => call("mail:link", id, l),
   addNote: (id, txt) => call("mail:note", id, txt),
   setPhase: (id, phase, st) => call("mail:phase", id, phase, st),

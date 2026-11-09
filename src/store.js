@@ -17,7 +17,7 @@ const fromRagicDT = (s) => {
 const TYPES = {
   statut: "statut", attendu: "json", notes: "json", journal: "json", rapproches: "json",
   nb: "num", opRid: "num", ordre: "num",
-  valideur: "bool", actif: "bool", lue: "bool", systeme: "bool",
+  valideur: "bool", actif: "bool", lue: "bool", systeme: "bool", defaut: "bool",
   dernier: "dt", attenteDepuis: "dt", date: "dt", relance: "dt"
 };
 const conv = {
@@ -54,6 +54,7 @@ class MailStore extends EventEmitter {
       try { (await this.client.schema(def.path)).forEach((x) => byLabel.set(norm(x.fieldName), x.fieldId)); }
       catch (e) {
         if (e.code === "auth" && e.status === 401) throw e;
+        if (def.optional) { this.f[name] = null; continue; }
         if (e.code === "not_found") { problems.push(`feuille introuvable : ${def.path} (${name})`); continue; }
         problems.push(`schéma illisible pour ${def.path} : ${e.message}`); continue;
       }
@@ -62,6 +63,7 @@ class MailStore extends EventEmitter {
         const id = byLabel.get(norm(d.label));
         if (id) map[logical] = Number(id); else if (!d.optional) missing.push(d.label);
       }
+      if (missing.length && def.optional) { this.f[name] = null; continue; }
       if (missing.length) problems.push(`${def.path} (${name}) : champ(s) manquant(s) ${missing.map((m) => "« " + m + " »").join(", ")}`);
       this.f[name] = map;
     }
@@ -83,7 +85,9 @@ class MailStore extends EventEmitter {
   }
 
   /* ---------- lecture ---------- */
+  has(name) { return !!this.f[name]; }
   async all(name) {
+    if (!this.f[name]) return [];
     const recs = await this.client.list(this.sheetDef(name).path);
     const docs = recs.map((r) => this.toDoc(name, r));
     const key = this.sheetDef(name).key;

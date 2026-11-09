@@ -26,7 +26,7 @@ class Services {
     this.gmail = new Gmail({ auth: this.auth, fetchImpl });
     this._seedGoogle(googleClient);
     this.store = null; this.error = null; this.ready = false; this.starting = false;
-    this.data = { mails: [], collaborateurs: [], phases: [], statutsPhase: [], alias: [], avancement: [], regles: [], notifications: [], ops: [], immeubles: [], syndics: [] };
+    this.data = { mails: [], colonnes: [], collaborateurs: [], phases: [], statutsPhase: [], alias: [], avancement: [], regles: [], notifications: [], ops: [], immeubles: [], syndics: [] };
     this.listeners = new Set(); this.timers = [];
   }
 
@@ -55,9 +55,11 @@ class Services {
   state() {
     return {
       googleConfigured: this.auth.configured, signedIn: this.auth.signedIn(), user: this.auth.user(), collaborateur: this.collaborateur(), collaborateurs: this.data.collaborateurs.map((c) => c.nom),
-      ragicConfigured: !!this.connections, ready: this.ready, starting: this.starting, error: this.error, mailbox: config.mailbox, allowedDomain: config.allowedDomain
+      ragicConfigured: !!this.connections, kanban: this.kanbanAvailable(), ready: this.ready, starting: this.starting, error: this.error, mailbox: config.mailbox, allowedDomain: config.allowedDomain
     };
   }
+  kanbanAvailable() { return !!(this.store && this.store.has("colonnes") && this.store.f.mails && this.store.f.mails.colonne); }
+  defaultColumn() { const c = this.data.colonnes.find((x) => x.defaut) || this.data.colonnes[0]; return c ? c.libelle : config.colonneParDefaut; }
   emit() { const sig = JSON.stringify(this.data); if (sig === this._sig) return; this._sig = sig; this.listeners.forEach((l) => l(this.snapshot())); }
   snapshot() { return JSON.parse(JSON.stringify(this.data)); }
 
@@ -82,8 +84,8 @@ class Services {
 
   async reload() {
     const s = this.store; if (!s) return;
-    const [mails, collaborateurs, phases, statutsPhase, alias, avancement, regles, notifications, immeubles, syndics, ops] = await Promise.all([
-      s.all("mails"), s.all("collaborateurs"), s.all("phases"), s.all("statutsPhase"), s.all("alias"), s.all("avancement"), s.all("regles"), s.all("notifications"), s.all("immeubles"), s.all("syndics"), s.operations()
+    const [mails, colonnes, collaborateurs, phases, statutsPhase, alias, avancement, regles, notifications, immeubles, syndics, ops] = await Promise.all([
+      s.all("mails"), s.all("colonnes"), s.all("collaborateurs"), s.all("phases"), s.all("statutsPhase"), s.all("alias"), s.all("avancement"), s.all("regles"), s.all("notifications"), s.all("immeubles"), s.all("syndics"), s.operations()
     ]);
     const byOrder = (a, b) => (a.ordre || 0) - (b.ordre || 0);
     const actifs = collaborateurs.filter((c) => c.actif !== false);
@@ -93,11 +95,12 @@ class Services {
       return c ? c.nom : String(txt).trim();
     };
     this.data = {
-      mails, collaborateurs: collaborateurs.filter((c) => c.actif !== false), phases: phases.filter((p) => p.actif !== false).sort(byOrder), statutsPhase: statutsPhase.sort(byOrder),
+      mails, colonnes: colonnes.filter((c) => c.actif !== false).sort(byOrder), collaborateurs: collaborateurs.filter((c) => c.actif !== false), phases: phases.filter((p) => p.actif !== false).sort(byOrder), statutsPhase: statutsPhase.sort(byOrder),
       alias, avancement, regles, notifications, ops: ops.map((o) => ({ ...o, archi: resolve(o.archi) })),
       immeubles: immeubles.map((i) => ({ code: i.code, syndic: i.syndic, emails: [i.emailGest, i.emailAssist].filter(Boolean) })),
       syndics: syndics.map((x) => ({ nom: x.nom, emails: [x.email].filter(Boolean) }))
     };
+    if (!this.data.colonnes.length) this.data.colonnes = [{ libelle: config.colonneParDefaut, ordre: 1, couleur: "Gris", actif: true, defaut: true }];
     this.emit();
   }
 
@@ -117,7 +120,7 @@ class Services {
     const threads = [];
     for (const t of list) { threads.push(await this.gmail.getThread(t.id)); }
     const fresh = threads.filter((t) => { const k = known.get(t.id); return !k || t.messages.length > (k.nb || 0) || (this.data.mails.some((m) => (m.rapproches || []).some((r) => r.thread === t.id))); });
-    const plan = planSync(fresh, { mails: this.data.mails, ops: this.data.ops, immeubles: this.data.immeubles, syndics: this.data.syndics, aliases: this.data.alias.map((a) => ({ adresse: a.adresse, collaborateur: a.collaborateur })), aliasList: config.aliases, agencyEmails: [config.mailbox], now: Date.now() });
+    const plan = planSync(fresh, { mails: this.data.mails, ops: this.data.ops, immeubles: this.data.immeubles, syndics: this.data.syndics, aliases: this.data.alias.map((a) => ({ adresse: a.adresse, collaborateur: a.collaborateur })), aliasList: config.aliases, agencyEmails: [config.mailbox], now: Date.now(), defaultCol: this.defaultColumn(), colNames: this.data.colonnes.map((c) => c.libelle) });
     for (const m of plan.upserts.values()) await s.upsert("mails", { ...m, modifiePar: "Automatique" });
     for (const n of plan.notifs) await s.create("notifications", { cle: uid(), pour: n.pour, de: n.de, date: new Date(n.t).toISOString(), texte: n.texte, thread: n.thread, lue: false });
     if (plan.upserts.size || plan.notifs.length) await this.reload();
@@ -137,6 +140,12 @@ class Services {
 
   async setStatut(id, statut) { this.requireActor(); return this._apply(this.mailById(id), C.setStatut(this.mailById(id), statut, { by: this.who(), ops: this.data.ops, valideurs: this.valideurs(), now: Date.now() })); }
   async transfer(id, to, motif) { this.requireActor(); return this._apply(this.mailById(id), C.transfer(this.mailById(id), to, { by: this.who(), motif, ops: this.data.ops, now: Date.now() })); }
+  async setColonne(id, nom) {
+    this.requireActor();
+    if (!this.kanbanAvailable()) throw Object.assign(new Error("Créez la feuille Colonnes et le champ « Colonne » dans Mails (voir le README)."), { code: "no_kanban" });
+    if (!this.data.colonnes.some((c) => c.libelle === nom)) throw Object.assign(new Error("Colonne inconnue."), { code: "not_found" });
+    const m = this.mailById(id); return this._apply(m, C.setColonne(m, nom, { by: this.who(), now: Date.now() }));
+  }
   async setRelance(id, iso) { this.requireActor(); const m = this.mailById(id); return this._apply(m, { mail: { ...m, relance: iso || "" }, journal: [{ t: Date.now(), par: this.who(), texte: iso ? "a programmé une relance" : "a retiré la relance" }], notifs: [] }); }
   async link(id, { imm, op }) {
     this.requireActor(); const m = this.mailById(id), o = op ? this.data.ops.find((x) => x.code === op) : null;
@@ -218,14 +227,17 @@ class Services {
   /* ---------- options : collaborateurs, phases, statuts de phase, alias ---------- */
   async saveRecord(sheet, rec) {
     this.requireActor(); const s = this.requireStore();
-    if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    if (!["collaborateurs", "phases", "statutsPhase", "alias", "colonnes"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    if (sheet === "colonnes" && !this.kanbanAvailable()) throw Object.assign(new Error("Créez d’abord la feuille Colonnes et le champ « Colonne » dans Mails (voir le README)."), { code: "no_kanban" });
     const key = s.sheetDef(sheet).key;
     if (!String(rec[key] || "").trim()) throw Object.assign(new Error("Le nom est obligatoire."), { code: "empty" });
     if (rec._renameFrom) {   // renommage : on met à jour la fiche existante (même rid), la clé change
       const rid = s.rids[sheet] && s.rids[sheet].get(rec._renameFrom);
       if (rid) { await s.client.update(s.sheetDef(sheet).path, rid, s.toFields(sheet, rec)); s.rids[sheet].delete(rec._renameFrom); s.rids[sheet].set(rec[key], rid); }
       if (sheet === "collaborateurs") await this._renameCollab(rec._renameFrom, rec[key]);
+      if (sheet === "colonnes") for (const m of this.data.mails) if (m.colonne === rec._renameFrom) await s.upsert("mails", { ...m, colonne: rec[key] });
     } else await s.upsert(sheet, rec);
+    if (sheet === "colonnes" && rec.defaut) for (const c of this.data.colonnes) if (c.defaut && c.libelle !== (rec[key])) await s.upsert("colonnes", { ...c, defaut: false });
     await this.reload();
   }
   async _renameCollab(from, to) {
@@ -235,7 +247,12 @@ class Services {
   /** Supprimer un collaborateur : tous ses fils passent « non attribués ». Les opérations Ragic ne sont pas modifiées. */
   async removeRecord(sheet, keyValue) {
     this.requireActor(); const s = this.requireStore();
-    if (!["collaborateurs", "phases", "statutsPhase", "alias"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    if (!["collaborateurs", "phases", "statutsPhase", "alias", "colonnes"].includes(sheet)) throw Object.assign(new Error("Feuille non modifiable."), { code: "forbidden" });
+    if (sheet === "colonnes") {
+      const col = this.data.colonnes.find((c) => c.libelle === keyValue), def = this.defaultColumn();
+      if (col && col.defaut) throw Object.assign(new Error("La colonne par défaut ne peut pas être supprimée : désignez-en une autre d’abord."), { code: "forbidden" });
+      for (const m of this.data.mails) if (m.colonne === keyValue) await s.upsert("mails", { ...m, colonne: def, modifiePar: this.who() });
+    }
     if (sheet === "collaborateurs") {
       for (const m of this.data.mails) if (m.assigne === keyValue) await s.upsert("mails", { ...m, assigne: "", modifiePar: this.who() });
       for (const n of this.data.notifications) if (n.pour === keyValue) await s.removeByKey("notifications", n.cle).catch(() => {});

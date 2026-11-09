@@ -8,12 +8,13 @@ const P = (name, def) => paths[name] || def;
 
 module.exports = {
   appName: "AGOA ML",
+  colonneParDefaut: "To do",
   mailbox: "agence@remithollet.fr",
   allowedDomain: "remithollet.fr",
   aliases: ["etudes@remithollet.fr", "comptabilite@remithollet.fr", "secretariat@remithollet.fr"],
   googleScopes: ["openid", "email", "profile", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"],
   /* valeurs de la liste « Statut » de la feuille Mails */
-  statutsRagic: { nouveau: "Nouveau", atraiter: "A traiter", attente: "En attente", avalider: "A valider", traite: "Traité" },
+  statutsRagic: { nouveau: "Nouveau", urgent: "Urgent", atraiter: "A traiter", attente: "En attente", avalider: "A valider", traite: "Traité" },
   gmailQuery: "in:inbox OR in:sent",
   syncMs: 60000,
   ragic: {
@@ -25,7 +26,7 @@ module.exports = {
       mails: { path: P("mails", "/mails/2"), key: "id", fields: {
         id: { label: "Thread ID" }, objet: { label: "Objet" }, expediteur: { label: "Expéditeur" }, expEmail: { label: "E-mail expéditeur", optional: true },
         alias: { label: "Alias destinataire" }, imm: { label: "Immeuble" }, op: { label: "Opération" }, opRid: { label: "ID opération Ragic" },
-        phase: { label: "Phase concernée" }, statut: { label: "Statut" }, assigne: { label: "Pris en charge par" },
+        phase: { label: "Phase concernée" }, colonne: { label: "Colonne", optional: true }, statut: { label: "Statut" }, assigne: { label: "Pris en charge par" },
         relance: { label: "Relance" }, attenteDepuis: { label: "En attente depuis" }, nb: { label: "Nb messages" },
         dernier: { label: "Dernier message" }, dernierExp: { label: "Dernier expéditeur" }, lien: { label: "Lien Gmail" }, modifiePar: { label: "Modifié par" },
         attendu: { label: "Réponses attendues" }, notes: { label: "Notes" }, journal: { label: "Journal" }, rapproches: { label: "Fils rapprochés" }
@@ -42,6 +43,8 @@ module.exports = {
       regles: { path: P("regles", "/mails/8"), key: null, fields: {
         phase: { label: "Phase" }, statutPhase: { label: "Statut de phase" }, champ: { label: "Champ OPERATIONS visé" },
         champId: { label: "ID du champ", optional: true }, action: { label: "Action" }, valeur: { label: "Valeur" }, actif: { label: "Actif" } } },
+      colonnes: { path: P("colonnes", "/mails/10"), key: "libelle", optional: true, fields: {
+        ordre: { label: "Ordre" }, libelle: { label: "Libellé" }, couleur: { label: "Couleur" }, actif: { label: "Actif" }, defaut: { label: "Par défaut" } } },
       notifications: { path: P("notifications", "/mails/9"), key: "cle", fields: {
         cle: { label: "Clé" }, pour: { label: "Pour" }, de: { label: "De" }, date: { label: "Date" }, texte: { label: "Texte" }, thread: { label: "Fil (Thread ID)" }, lue: { label: "Lue" } } }
     },

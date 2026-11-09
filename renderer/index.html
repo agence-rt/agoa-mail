@@ -246,6 +246,38 @@ main{display:grid;grid-template-columns:240px 390px minmax(0,1fr);min-height:0}
 .sync.bad{color:var(--red)}
 .msg .snipb{color:var(--muted)}
 
+
+.pill[data-s="urgent"]{background:var(--red);color:#fff}
+.vmode{display:flex;gap:0}
+.vmode button{border:1px solid var(--line);background:var(--panel);padding:2px 12px;font-size:12px}
+.vmode button:first-child{border-radius:6px 0 0 6px}.vmode button:last-child{border-radius:0 6px 6px 0;border-left:0}
+.vmode button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.lh-top{display:flex;gap:8px;align-items:center}
+.lh-top input{flex:1}
+.grp{position:sticky;top:0;background:var(--paper);padding:6px 14px;font:600 12px var(--font-display);letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--line);color:var(--c,var(--muted));border-left:4px solid var(--c,var(--line))}
+.board{display:none;gap:10px;overflow:auto;padding:12px;align-items:flex-start;flex:1;min-height:0}
+#app.kanban .board{display:flex}
+#app.kanban .threads{display:none}
+#app.kanban main{grid-template-columns:240px minmax(0,1fr)}
+#app.kanban .list{border-right:0}
+#app.kanban .detail{position:fixed;top:52px;right:0;bottom:0;width:min(640px,100%);z-index:30;box-shadow:-8px 0 24px rgba(0,0,0,.18);border-left:1px solid var(--line)}
+#app.kanban:not(.has-sel) .detail{display:none}
+.dclose{display:none;border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 10px;align-self:flex-start}
+#app.kanban .dclose{display:inline-block}
+.kcol{flex:0 0 288px;background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--c,var(--line));border-radius:8px;display:flex;flex-direction:column;max-height:100%}
+.kcol.drop{outline:2px dashed var(--accent);outline-offset:2px}
+.kcol h4{margin:0;padding:8px 10px;font:600 13px var(--font-display);display:flex;justify-content:space-between;gap:6px;color:var(--c,var(--ink))}
+.kcol .n{color:var(--muted);font-weight:400}
+.kbody{padding:0 8px 8px;overflow:auto;display:flex;flex-direction:column;gap:6px;min-height:40px}
+.kcard{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 9px;cursor:grab;display:flex;flex-direction:column;gap:5px}
+.kcard:hover{border-color:var(--accent)}
+.kcard[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.kcard .subject{font-weight:600;font-size:13px}
+.kcard .chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.kcard.dragging{opacity:.5}
+.kadd{flex:0 0 200px;border:1px dashed var(--line);background:transparent;border-radius:8px;padding:10px;color:var(--muted)}
+.kwarn{margin:12px;padding:12px 14px;border:1px solid var(--line);border-left:4px solid var(--warn);background:var(--warn-soft);border-radius:6px;font-size:13px;max-width:560px}
+.cswatch{width:14px;height:14px;border-radius:50%;background:var(--c,var(--muted));display:inline-block}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -266,10 +298,11 @@ main{display:grid;grid-template-columns:240px 390px minmax(0,1fr);min-height:0}
     <nav class="side" id="side" aria-label="Filtres"></nav>
     <section class="list" aria-label="Fils de discussion">
       <div class="list-head">
-        <input id="q" type="search" placeholder="Rechercher un fil, un code, un expéditeur" aria-label="Rechercher">
+        <div class="lh-top"><input id="q" type="search" placeholder="Rechercher un fil, un code, un expéditeur" aria-label="Rechercher"><div class="vmode" id="vmode" role="group" aria-label="Affichage"></div></div>
         <div class="fchips" id="chips"></div>
       </div>
       <ul class="threads" id="threads"></ul>
+      <div class="board" id="board" aria-label="Kanban"></div>
     </section>
     <section class="detail" id="detail" aria-live="polite"></section>
   </main>

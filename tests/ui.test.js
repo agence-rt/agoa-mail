@@ -9,10 +9,11 @@ const NOW = Date.now();
 const data = () => ({
   mails: [
     { id: "t1", objet: "Devis BANQUIER33-A", expediteur: "Entreprise A", expEmail: "a@e.fr", alias: "", imm: "BANQUIER33", op: "BANQUIER33-A", statut: "attente", assigne: "", nb: 2, dernier: new Date(NOW - 3600e3).toISOString(), attendu: [{ email: "a@e.fr", nom: "A", recu: false }, { email: "b@e.fr", nom: "B", recu: true }], notes: [], journal: [{ t: NOW, par: "Dieu", texte: "a envoyé" }], lien: "https://x" },
-    { id: "t2", objet: "Facture", expediteur: "Foncia", expEmail: "f@foncia.fr", imm: "DELTA14", op: "", statut: "nouveau", assigne: "Marie", nb: 1, dernier: new Date(NOW - 7200e3).toISOString(), attendu: [], notes: [], journal: [] },
+    { id: "t2", colonne: "Chantier DELTA", objet: "Facture", expediteur: "Foncia", expEmail: "f@foncia.fr", imm: "DELTA14", op: "", statut: "nouveau", assigne: "Marie", nb: 1, dernier: new Date(NOW - 7200e3).toISOString(), attendu: [], notes: [], journal: [] },
     { id: "t3", objet: "Sans dossier", expediteur: "X", expEmail: "x@y.fr", imm: "", op: "", statut: "atraiter", assigne: "", nb: 1, dernier: new Date(NOW - 9000e3).toISOString(), attendu: [], notes: [], journal: [] }
   ],
   collaborateurs: [{ nom: "Dieu", email: "dieu@remithollet.fr", fonction: "Architecte" }, { nom: "Marie", email: "m@r.fr", fonction: "Comptabilité" }, { nom: "Thomas", email: "t@r.fr", fonction: "Architecte" }],
+  colonnes: [{ libelle: "To do", couleur: "Gris", ordre: 1, defaut: true }, { libelle: "Chantier DELTA", couleur: "Bleu", ordre: 2 }],
   phases: [{ libelle: "Visite", ordre: 1 }, { libelle: "Rapport", ordre: 2 }],
   statutsPhase: [{ libelle: "À faire", couleur: "Gris", ordre: 1 }, { libelle: "Transmise", couleur: "Violet", ordre: 2 }],
   alias: [], avancement: [{ codeOp: "BANQUIER33-A", phase: "Visite", statutPhase: "Transmise" }], regles: [], notifications: [{ cle: "n1", pour: "Dieu", de: "Marie", date: new Date(NOW).toISOString(), texte: "Marie vous a transmis un fil", thread: "t2", lue: false }],
@@ -26,11 +27,11 @@ function boot() {
   const w = dom.window;
   const rec = (name, ret) => (...a) => { calls.push([name, ...a]); return Promise.resolve(ret === undefined ? true : ret); };
   w.agoa = {
-    state: () => Promise.resolve({ googleConfigured: true, signedIn: true, ragicConfigured: true, ready: true, user: { email: "dieu@remithollet.fr", name: "Dieu" }, collaborateur: { nom: "Dieu" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr", allowedDomain: "remithollet.fr" }),
+    state: () => Promise.resolve({ googleConfigured: true, signedIn: true, ragicConfigured: true, ready: true, user: { email: "dieu@remithollet.fr", name: "Dieu" }, collaborateur: { nom: "Dieu" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr", kanban: true, allowedDomain: "remithollet.fr" }),
     data: () => Promise.resolve(data()), onData() {}, sync: () => Promise.resolve({ updated: 0 }),
     thread: () => Promise.resolve({ messages: [{ from: { nom: "A", email: "a@e.fr" }, to: [{ email: "agence@remithollet.fr" }], t: NOW, snippet: "Voici notre devis" }] }),
     suggest: (id) => Promise.resolve(id === "t3" ? { detect: { imm: "DELTA14", op: "DELTA14-A", why: "Le code figure." }, waiting: null } : { detect: null, waiting: null }),
-    setMe: () => Promise.resolve({ signedIn: true, ragicConfigured: true, ready: true, collaborateur: { nom: "Marie" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr" }), setStatut: rec("statut"), transfer: rec("transfer"), setRelance: rec("relance"), link: rec("link"), addNote: rec("note"), setPhase: rec("phase"), send: rec("send"), markRead: rec("read"), mergeInto: rec("merge"), saveRecord: rec("save"), removeRecord: rec("remove")
+    setMe: () => Promise.resolve({ signedIn: true, ragicConfigured: true, ready: true, collaborateur: { nom: "Marie" }, collaborateurs: ["Dieu", "Marie", "Thomas"], mailbox: "agence@remithollet.fr" }), setStatut: rec("statut"), setColonne: rec("colonne"), transfer: rec("transfer"), setRelance: rec("relance"), link: rec("link"), addNote: rec("note"), setPhase: rec("phase"), send: rec("send"), markRead: rec("read"), mergeInto: rec("merge"), saveRecord: rec("save"), removeRecord: rec("remove")
   };
   wins.push(w);
   w.eval(fs.readFileSync(path.join(__dirname, "..", "renderer", "app.js"), "utf8"));
@@ -114,4 +115,19 @@ test("qui suis-je : le choix se fait en haut et se retient", async () => {
   assert.equal(doc.getElementById("me").value, "Dieu");
   const sel = doc.getElementById("me"); sel.value = "Marie"; sel.dispatchEvent(new w.Event("change", { bubbles: true })); await tick();
   assert.ok(doc.getElementById("me"));
+});
+
+test("liste triée par colonne avec intitulés de groupe, puis bascule Kanban et dépôt sur une colonne", async () => {
+  const { w, doc, calls } = boot(); await tick();
+  const grp = [...doc.querySelectorAll(".grp")].map((g) => g.textContent);
+  assert.equal(grp.length, 2);
+  assert.match(grp[0], /^To do · 2/); assert.match(grp[1], /^Chantier DELTA · 1/);
+  click(w, doc.querySelector('[data-action="mode"][data-m="kanban"]')); await tick();
+  assert.equal(doc.querySelectorAll(".kcol").length, 2);
+  assert.equal(doc.querySelector('.kcol[data-col="To do"]').querySelectorAll(".kcard").length, 2);
+  const col = doc.querySelector('.kcol[data-col="Chantier DELTA"]');
+  const ev = new w.Event("drop", { bubbles: true, cancelable: true });
+  ev.dataTransfer = { getData: () => "t1" };
+  col.dispatchEvent(ev); await tick();
+  assert.ok(calls.some((c) => c[0] === "colonne" && c[1] === "t1" && c[2] === "Chantier DELTA"));
 });

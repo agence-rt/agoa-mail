@@ -1,12 +1,12 @@
 (function () {
   "use strict";
   var agoa = window.agoa;
-  var STATUTS = [{ id: "nouveau", label: "Nouveau" }, { id: "atraiter", label: "À traiter" }, { id: "attente", label: "En attente" }, { id: "avalider", label: "À valider" }, { id: "traite", label: "Traité" }];
+  var STATUTS = [{ id: "nouveau", label: "Nouveau" }, { id: "urgent", label: "Urgent" }, { id: "atraiter", label: "À traiter" }, { id: "attente", label: "En attente" }, { id: "avalider", label: "À valider" }, { id: "traite", label: "Traité" }];
   var COULEURS = ["Gris", "Bleu", "Orange", "Violet", "Vert", "Rouge"];
   var DAY = 86400000;
-  var D = { mails: [], collaborateurs: [], phases: [], statutsPhase: [], alias: [], avancement: [], regles: [], notifications: [], ops: [], immeubles: [], syndics: [] };
+  var D = { colonnes: [], mails: [], collaborateurs: [], phases: [], statutsPhase: [], alias: [], avancement: [], regles: [], notifications: [], ops: [], immeubles: [], syndics: [] };
   var ST = null, loaded = false, lastSync = null, syncErr = "";
-  var ui = { sel: null, person: "", imm: "", statut: null, view: "all", q: "", tab: "messages", ribbon: false, bell: false, modal: null, drawer: false, mobileDetail: false, th: {}, draft: { to: {}, bcc: {}, reply: {}, note: {}, from: {} }, opt: "collaborateurs" };
+  var ui = { mode: "list", showDone: false, sel: null, person: "", imm: "", statut: null, view: "all", q: "", tab: "messages", ribbon: false, bell: false, modal: null, drawer: false, mobileDetail: false, th: {}, draft: { to: {}, bcc: {}, reply: {}, note: {}, from: {} }, opt: "collaborateurs" };
 
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
@@ -57,6 +57,12 @@
   function toInputDate(iso) { var d = new Date(ts(iso)), p = function (n) { return (n < 10 ? "0" : "") + n; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()); }
   function me() { return (ST && ST.collaborateur && ST.collaborateur.nom) || ""; }
 
+  function colNames() { return D.colonnes.map(function (c) { return c.libelle; }); }
+  function defCol() { var c = D.colonnes.filter(function (x) { return x.defaut; })[0] || D.colonnes[0]; return c ? c.libelle : "To do"; }
+  function colOf(m) { return colNames().indexOf(m.colonne) >= 0 ? m.colonne : defCol(); }
+  function colIdx(m) { return colNames().indexOf(colOf(m)); }
+  function byUrgent(a, b) { return (b.statut === "urgent") - (a.statut === "urgent") || lastT(b) - lastT(a); }
+
   function visible(ign) {
     var q = ui.q.trim().toLowerCase();
     return D.mails.filter(function (m) {
@@ -68,7 +74,7 @@
       if (!ign && ui.statut && m.statut !== ui.statut) return false;
       if (q && (m.objet + " " + code(m) + " " + m.expediteur + " " + m.expEmail).toLowerCase().indexOf(q) < 0) return false;
       return true;
-    }).sort(function (a, b) { return lastT(b) - lastT(a); });
+    }).sort(function (a, b) { return ui.mode === "list" ? colIdx(a) - colIdx(b) || byUrgent(a, b) : byUrgent(a, b); });
   }
 
   /* ---------- rendu ---------- */
@@ -136,19 +142,40 @@
     if (ui.person) chips += '<button class="fchip active" data-action="person" data-p="">' + (ui.person === "none" ? "Non assigné" : esc(ui.person)) + " ×</button>";
     if (ui.imm) chips += '<button class="fchip active" data-action="imm" data-i="' + esc(ui.imm) + '">' + esc(ui.imm) + " ×</button>";
     $("chips").innerHTML = chips;
-    $("threads").innerHTML = visible().map(function (m) {
-      var c = code(m), cp = curPhase(m), a = assignee(m);
-      return '<li class="th" draggable="true" role="option" tabindex="0" aria-selected="' + (ui.sel === m.id) + '" data-action="open" data-id="' + esc(m.id) + '">' +
-        '<div class="th-top"><span class="from">' + esc(m.expediteur || m.expEmail || "—") + (m.nb > 1 ? ' <span class="meta">(' + m.nb + ")</span>" : "") + '</span><span class="date">' + esc(lastT(m) ? fmtDate(lastT(m)) : "") + "</span></div>" +
-        '<div class="subject">' + esc(short(m.objet, 84)) + "</div>" +
-        '<div class="chips">' + (c ? '<span class="code">' + esc(c) + "</span>" : '<span class="code none">non rattaché</span>') +
-        '<span class="pill" data-s="' + m.statut + '">' + esc((STATUTS.filter(function (s) { return s.id === m.statut; })[0] || { label: m.statut }).label) + "</span>" +
-        ((m.attendu || []).length ? '<span class="meta">' + recus(m) + "/" + m.attendu.length + " réponses</span>" : "") +
-        (cp ? '<span class="meta">' + esc(cp.p.libelle) + "</span>" : "") +
-        (isDue(m) ? '<span class="pill late">' + esc(relanceLabel(m)) + "</span>" : "") +
-        ((m.notes || []).length ? '<span class="meta">' + m.notes.length + " note" + (m.notes.length > 1 ? "s" : "") + "</span>" : "") +
-        (m.assigne && m.assigne !== archi(m) ? '<span class="meta" title="Pris en charge par une autre personne que l’architecte">transmis</span>' : "") + '<span class="grow"></span>' + avatar(a) + "</div></li>";
-    }).join("") || '<li class="empty">Aucun fil pour ces filtres.</li>';
+    $("vmode").innerHTML = '<button data-action="mode" data-m="list" aria-pressed="' + (ui.mode === "list") + '">Liste</button><button data-action="mode" data-m="kanban" aria-pressed="' + (ui.mode === "kanban") + '">Kanban</button>';
+    var items = visible(), html = "", last = null;
+    items.forEach(function (m) {
+      var cn = colOf(m);
+      if (cn !== last) { last = cn; var co = D.colonnes.filter(function (x) { return x.libelle === cn; })[0]; html += '<li class="grp" data-c="' + colorKey(co && co.couleur) + '">' + esc(cn) + " · " + items.filter(function (x) { return colOf(x) === cn; }).length + "</li>"; }
+      html += threadItem(m);
+    });
+    $("threads").innerHTML = html || '<li class="empty">Aucun fil pour ces filtres.</li>';
+    renderBoard(items);
+  }
+
+  function threadItem(m) {
+    var c = code(m), cp = curPhase(m), a = assignee(m);
+    return '<li class="th" draggable="true" role="option" tabindex="0" aria-selected="' + (ui.sel === m.id) + '" data-action="open" data-id="' + esc(m.id) + '">' +
+      '<div class="th-top"><span class="from">' + esc(m.expediteur || m.expEmail || "—") + (m.nb > 1 ? ' <span class="meta">(' + m.nb + ")</span>" : "") + '</span><span class="date">' + esc(lastT(m) ? fmtDate(lastT(m)) : "") + "</span></div>" +
+      '<div class="subject">' + esc(short(m.objet, 84)) + "</div>" +
+      '<div class="chips">' + (c ? '<span class="code">' + esc(c) + "</span>" : '<span class="code none">non rattaché</span>') + statutPill(m) +
+      ((m.attendu || []).length ? '<span class="meta">' + recus(m) + "/" + m.attendu.length + " réponses</span>" : "") +
+      (cp ? '<span class="meta">' + esc(cp.p.libelle) + "</span>" : "") +
+      (isDue(m) ? '<span class="pill late">' + esc(relanceLabel(m)) + "</span>" : "") +
+      ((m.notes || []).length ? '<span class="meta">' + m.notes.length + " note" + (m.notes.length > 1 ? "s" : "") + "</span>" : "") +
+      (m.assigne && m.assigne !== archi(m) ? '<span class="meta" title="Pris en charge par une autre personne que l’architecte">transmis</span>' : "") + '<span class="grow"></span>' + avatar(a) + "</div></li>";
+  }
+  function statutPill(m) { return '<span class="pill" data-s="' + m.statut + '">' + esc((STATUTS.filter(function (s) { return s.id === m.statut; })[0] || { label: m.statut }).label) + "</span>"; }
+
+  function renderBoard(items) {
+    var b = $("board"); if (ui.mode !== "kanban") { b.innerHTML = ""; return; }
+    if (!ST.kanban) { b.innerHTML = '<div class="kwarn"><strong>Kanban non disponible.</strong><br>Créez dans Ragic la feuille <strong>Colonnes</strong> (/mails/10 : Ordre, Libellé, Couleur, Actif, Par défaut) et le champ texte <strong>Colonne</strong> dans la feuille Mails, puis actualisez. Détail dans le README.</div>'; return; }
+    var rows = items.filter(function (m) { return ui.showDone || ui.statut === "traite" || m.statut !== "traite"; });
+    b.innerHTML = D.colonnes.map(function (c) {
+      var inCol = rows.filter(function (m) { return colOf(m) === c.libelle; });
+      return '<div class="kcol" data-c="' + colorKey(c.couleur) + '" data-col="' + esc(c.libelle) + '"><h4><span>' + esc(c.libelle) + '</span><span class="n">' + inCol.length + '</span></h4><div class="kbody">' +
+        (inCol.map(function (m) { var cd = code(m), a = assignee(m); return '<div class="kcard" draggable="true" data-action="open" data-id="' + esc(m.id) + '" aria-selected="' + (ui.sel === m.id) + '"><div class="subject">' + esc(short(m.objet, 70)) + '</div><div class="meta">' + esc(m.expediteur || m.expEmail || "") + " · " + esc(lastT(m) ? fmtDate(lastT(m)) : "") + '</div><div class="chips">' + (cd ? '<span class="code">' + esc(cd) + "</span>" : "") + statutPill(m) + ((m.attendu || []).length ? '<span class="meta">' + recus(m) + "/" + m.attendu.length + "</span>" : "") + (isDue(m) ? '<span class="pill late">' + esc(relanceLabel(m)) + "</span>" : "") + '<span class="grow"></span>' + avatar(a) + "</div></div>"; }).join("") || "") + "</div></div>";
+    }).join("") + '<button class="kadd" data-action="options" data-t="colonnes">+ Gérer les colonnes</button><button class="kadd" data-action="showdone" style="flex-basis:150px">' + (ui.showDone ? "Masquer les traités" : "Afficher les traités") + "</button>";
   }
 
   function ribbonHtml(m) {
@@ -167,6 +194,7 @@
       '<div class="field"><label for="f-imm">Immeuble</label><select id="f-imm" data-change="imm"><option value="">Non rattaché</option>' + D.immeubles.map(function (i) { return '<option value="' + esc(i.code) + '"' + (imm === i.code ? " selected" : "") + ">" + esc(i.code) + "</option>"; }).join("") + "</select></div>" +
       '<div class="field"><label for="f-op">Opération</label><select id="f-op" data-change="op"' + (imm ? "" : " disabled") + '><option value="">Aucune (immeuble seul)</option>' + opts.map(function (x) { return '<option value="' + esc(x.code) + '"' + (m.op === x.code ? " selected" : "") + ">" + esc(x.code) + "</option>"; }).join("") + (m.op && !o ? '<option value="' + esc(m.op) + '" selected>' + esc(m.op) + " (pas encore dans Ragic)</option>" : "") + "</select></div>" +
       '<div class="field"><label for="f-as">Pris en charge par</label><select id="f-as" data-change="assigne"><option value="">' + (ar ? "Architecte de l’opération (" + esc(ar) + ")" : "Personne") + "</option>" + D.collaborateurs.map(function (u) { return '<option value="' + esc(u.nom) + '"' + (m.assigne === u.nom ? " selected" : "") + ">" + esc(u.nom) + "</option>"; }).join("") + "</select></div>" +
+      (ST.kanban ? '<div class="field"><label for="f-co">Colonne</label><select id="f-co" data-change="colonne">' + D.colonnes.map(function (c) { return "<option" + (colOf(m) === c.libelle ? " selected" : "") + ">" + esc(c.libelle) + "</option>"; }).join("") + "</select></div>" : "") +
       '<div class="field"><label for="f-re">Relance le</label><input id="f-re" type="date" data-change="relance" value="' + (m.relance ? toInputDate(m.relance) : "") + '"><div class="quick"><button data-action="rq" data-d="2">+2 j</button><button data-action="rq" data-d="7">+1 sem.</button><button data-action="rq" data-d="">Effacer</button></div></div></div>';
     if (c) {
       h += "<div><h5>Avancement de " + esc(c) + (o ? "" : ' <span class="meta">opération pas encore dans Ragic : l’information est conservée</span>') + '<button data-action="options" data-t="phases">Gérer les phases et statuts</button></h5><div class="phases">' +
@@ -180,7 +208,7 @@
     var el = $("detail"), m = mail(ui.sel);
     if (!m) { el.innerHTML = '<div class="none-sel">Sélectionnez un fil.</div>'; return; }
     var sg = ui.th["s:" + m.id];
-    var h = '<div class="detail-inner"><button class="back" data-action="back">Retour aux fils</button>' + ribbonHtml(m);
+    var h = '<div class="detail-inner"><button class="back" data-action="back">Retour aux fils</button><button class="dclose" data-action="closedetail">Fermer ✕</button>' + ribbonHtml(m);
     h += '<div class="dh"><h2>' + esc(m.objet) + '</h2><div class="sub">' + esc(m.expediteur) + " · " + esc(m.expEmail) + (m.alias ? " · reçu sur " + esc(m.alias) : "") + (m.lien ? ' · <a href="' + esc(m.lien) + '" target="_blank" rel="noopener">Ouvrir dans Gmail</a>' : "") + "</div></div>";
     if (sg && sg.waiting) h += '<div class="sugg"><p><strong>Rapprochement proposé</strong><br>' + esc(m.expediteur) + " fait partie des destinataires attendus du fil « " + esc(short(sg.waiting.objet, 60)) + " ». Rapprocher ce mail le fera repasser à « À traiter ».</p><button class=\"btn primary\" data-action=\"merge\" data-id=\"" + esc(sg.waiting.id) + '">Rapprocher</button></div>';
     if (sg && sg.detect) h += '<div class="sugg"><p><strong>Rattachement proposé : <span class="code">' + esc(sg.detect.op || sg.detect.imm) + "</span></strong><br>" + esc(sg.detect.why) + '</p><button class="btn primary" data-action="accept">Rattacher</button></div>';
@@ -234,11 +262,15 @@
   }
 
   function optionsHtml() {
-    var tabs = [["collaborateurs", "Collaborateurs"], ["phases", "Phases"], ["statutsPhase", "Statuts de phase"], ["alias", "Alias"]];
+    var tabs = [["collaborateurs", "Collaborateurs"], ["colonnes", "Colonnes"], ["phases", "Phases"], ["statutsPhase", "Statuts de phase"], ["alias", "Alias"]];
     var h = '<div class="modal" role="dialog" aria-label="Options"><h3>Options</h3><div class="otabs">' + tabs.map(function (t) { return '<button class="tab" data-action="otab" data-t="' + t[0] + '" aria-selected="' + (ui.opt === t[0]) + '">' + t[1] + "</button>"; }).join("") + "</div>";
     if (ui.opt === "collaborateurs") {
       h += D.collaborateurs.map(function (c) { return '<div class="urow" data-sheet="collaborateurs" data-key="' + esc(c.nom) + '">' + avatar(c.nom) + '<input type="text" data-f="nom" value="' + esc(c.nom) + '" aria-label="Nom"><input type="text" data-f="email" value="' + esc(c.email) + '" placeholder="e-mail" aria-label="E-mail"><input type="text" data-f="fonction" value="' + esc(c.fonction) + '" placeholder="fonction" aria-label="Fonction"><label class="chk"><input type="checkbox" data-f="valideur"' + (c.valideur ? " checked" : "") + '>valide</label><button class="btn xs danger" data-action="delcollab" data-n="' + esc(c.nom) + '">Supprimer</button></div>'; }).join("") +
         '<div class="urow add"><input type="text" id="nc-nom" placeholder="Nom"><input type="text" id="nc-email" placeholder="e-mail"><input type="text" id="nc-fn" placeholder="fonction"><button class="btn xs" data-action="addcollab">Ajouter</button></div><p class="help">Le nom doit correspondre au prénom saisi dans « Architecte ? » des opérations Ragic.</p>';
+    } else if (ui.opt === "colonnes") {
+      if (!ST.kanban) h += '<div class="kwarn">Créez d’abord la feuille <strong>Colonnes</strong> (/mails/10) et le champ <strong>Colonne</strong> dans Mails (voir le README).</div>';
+      else h += D.colonnes.map(function (c, i) { return '<div class="orow" data-sheet="colonnes" data-key="' + esc(c.libelle) + '"><span class="meta">' + (i + 1) + '</span><input type="text" data-f="libelle" value="' + esc(c.libelle) + '" aria-label="Colonne"><select data-f="couleur" data-c="' + colorKey(c.couleur) + '">' + COULEURS.map(function (x) { return "<option" + (norm(x) === norm(c.couleur) ? " selected" : "") + ">" + x + "</option>"; }).join("") + '</select><span class="ord"><label class="chk" title="Colonne où arrivent les nouveaux fils"><input type="checkbox" data-f="defaut"' + (c.defaut ? " checked" : "") + '>défaut</label><button data-action="up" data-sheet="colonnes" data-key="' + esc(c.libelle) + '">↑</button><button data-action="down" data-sheet="colonnes" data-key="' + esc(c.libelle) + '">↓</button><button class="btn xs danger" data-action="delrec" data-sheet="colonnes" data-key="' + esc(c.libelle) + '">×</button></span></div>'; }).join("") +
+        '<div class="orow add"><span></span><input type="text" id="nk-lib" placeholder="Nouvelle colonne"><select id="nk-col">' + COULEURS.map(function (x) { return "<option>" + x + "</option>"; }).join("") + '</select><button class="btn xs" data-action="addcol">Ajouter</button></div><p class="help">Les nouveaux fils arrivent dans la colonne « défaut ». Supprimer une colonne renvoie ses fils dans la colonne par défaut. Un fil archivé garde sa colonne et la retrouve à la prochaine réponse.</p>';
     } else if (ui.opt === "phases") {
       h += D.phases.map(function (p, i) { return '<div class="orow" data-sheet="phases" data-key="' + esc(p.libelle) + '"><span class="meta">' + (i + 1) + '</span><input type="text" data-f="libelle" value="' + esc(p.libelle) + '" aria-label="Phase"><span class="ord"><button data-action="up" data-sheet="phases" data-key="' + esc(p.libelle) + '" aria-label="Monter">↑</button><button data-action="down" data-sheet="phases" data-key="' + esc(p.libelle) + '" aria-label="Descendre">↓</button></span><button class="btn xs danger" data-action="delrec" data-sheet="phases" data-key="' + esc(p.libelle) + '">Retirer</button></div>'; }).join("") +
         '<div class="orow add"><span></span><input type="text" id="np-lib" placeholder="Nouvelle phase"><span></span><button class="btn xs" data-action="addphase">Ajouter</button></div>';
@@ -255,7 +287,7 @@
   function renderAll() {
     if (renderGate()) return;
     renderWho(); renderSide(); renderList(); renderDetail(); renderModal();
-    $("app").className = (ui.drawer ? "m-drawer " : "") + (ui.mobileDetail ? "m-detail" : "");
+    $("app").className = (ui.drawer ? "m-drawer " : "") + (ui.mobileDetail ? "m-detail " : "") + (ui.mode === "kanban" ? "kanban " : "") + (ui.sel ? "has-sel" : "");
   }
 
   /* ---------- données ---------- */
@@ -277,15 +309,15 @@
   function parseRcpt(s) { return String(s || "").split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(function (x) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); }); }
   function saveRow(row, patch) {
     var sheet = row.dataset.sheet, key = row.dataset.key, cur = null;
-    var list = sheet === "collaborateurs" ? D.collaborateurs : sheet === "phases" ? D.phases : sheet === "statutsPhase" ? D.statutsPhase : D.alias;
-    var kf = { collaborateurs: "nom", phases: "libelle", statutsPhase: "libelle", alias: "adresse" }[sheet];
+    var list = sheet === "collaborateurs" ? D.collaborateurs : sheet === "phases" ? D.phases : sheet === "statutsPhase" ? D.statutsPhase : sheet === "colonnes" ? D.colonnes : D.alias;
+    var kf = { collaborateurs: "nom", phases: "libelle", statutsPhase: "libelle", colonnes: "libelle", alias: "adresse" }[sheet];
     list.forEach(function (x) { if (x[kf] === key) cur = x; });
     if (!cur) return;
     var rec = Object.assign({}, cur, patch); if (rec[kf] !== key) rec._renameFrom = key;
     act(agoa.saveRecord(sheet, rec), "Enregistré");
   }
   function move(sheet, key, dir) {
-    var list = sheet === "phases" ? D.phases : D.statutsPhase, i = list.map(function (x) { return x.libelle; }).indexOf(key), j = i + dir;
+    var list = sheet === "phases" ? D.phases : sheet === "colonnes" ? D.colonnes : D.statutsPhase, i = list.map(function (x) { return x.libelle; }).indexOf(key), j = i + dir;
     if (i < 0 || j < 0 || j >= list.length) return;
     var a = list[i], b = list[j];
     Promise.all([agoa.saveRecord(sheet, Object.assign({}, a, { ordre: j + 1 })), agoa.saveRecord(sheet, Object.assign({}, b, { ordre: i + 1 }))]).catch(fail);
@@ -301,6 +333,9 @@
     else if (a === "imm") { ui.imm = ui.imm === d.i ? "" : d.i; ui.drawer = false; renderAll(); }
     else if (a === "sfilter") { ui.statut = d.s || null; renderList(); }
     else if (a === "open") { ui.sel = d.id; ui.mobileDetail = true; ui.tab = "messages"; loadThread(d.id); loadSuggest(d.id); renderAll(); }
+    else if (a === "mode") { ui.mode = d.m; renderAll(); }
+    else if (a === "showdone") { ui.showDone = !ui.showDone; renderList(); }
+    else if (a === "closedetail") { ui.sel = null; renderAll(); }
     else if (a === "back") { ui.mobileDetail = false; renderAll(); }
     else if (a === "drawer") { ui.drawer = !ui.drawer; renderAll(); }
     else if (a === "ribbon") { ui.ribbon = !ui.ribbon; renderDetail(); }
@@ -334,6 +369,7 @@
     else if (a === "addcollab") { var nm = ($("nc-nom").value || "").trim(); if (!nm) { toast("Saisissez un nom"); return; } act(agoa.saveRecord("collaborateurs", { nom: nm, email: $("nc-email").value.trim(), fonction: $("nc-fn").value.trim(), valideur: false, actif: true }), "Collaborateur ajouté"); }
     else if (a === "delcollab") { ui.modal = { type: "delcollab", nom: d.n }; renderModal(); }
     else if (a === "dodelcollab") { if (ui.person === d.n) ui.person = ""; ui.modal = { type: "options" }; renderModal(); act(agoa.removeRecord("collaborateurs", d.n), "Collaborateur supprimé : ses fils sont non attribués"); }
+    else if (a === "addcol") { var kl = ($("nk-lib").value || "").trim(); if (kl) act(agoa.saveRecord("colonnes", { libelle: kl, couleur: $("nk-col").value, ordre: D.colonnes.length + 1, actif: true, defaut: false }), "Colonne ajoutée"); }
     else if (a === "addphase") { var pl = ($("np-lib").value || "").trim(); if (pl) act(agoa.saveRecord("phases", { libelle: pl, ordre: D.phases.length + 1, actif: true }), "Phase ajoutée"); }
     else if (a === "addstat") { var sl = ($("ns-lib").value || "").trim(); if (sl) act(agoa.saveRecord("statutsPhase", { libelle: sl, couleur: $("ns-col").value, ordre: D.statutsPhase.length + 1, systeme: false }), "Statut ajouté"); }
     else if (a === "addalias") { var ad = ($("na-adr").value || "").trim().toLowerCase(); if (ad) act(agoa.saveRecord("alias", { adresse: ad, collaborateur: "" }), "Alias ajouté"); }
@@ -348,6 +384,7 @@
     if (k === "me") { agoa.setMe(t.value).then(function (s) { ST = s; ui.person = ""; renderAll(); }, fail); return; }
     if (!k || !m) return;
     if (k === "statut") act(agoa.setStatut(m.id, t.value), "Statut mis à jour");
+    else if (k === "colonne") act(agoa.setColonne(m.id, t.value), "Fil déplacé dans « " + t.value + " »");
     else if (k === "assigne") act(agoa.transfer(m.id, t.value, ""), t.value ? "Fil transmis à " + t.value : "Fil rendu");
     else if (k === "imm") act(agoa.link(m.id, { imm: t.value, op: "" }));
     else if (k === "op") act(agoa.link(m.id, { imm: m.imm, op: t.value }));
@@ -360,11 +397,13 @@
   });
 
   /* glisser-déposer d'un fil sur une personne */
-  document.addEventListener("dragstart", function (e) { var li = e.target.closest && e.target.closest(".th"); if (!li) return; e.dataTransfer.setData("text/plain", li.dataset.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); });
-  document.addEventListener("dragend", function (e) { var li = e.target.closest && e.target.closest(".th"); if (li) li.classList.remove("dragging"); document.querySelectorAll(".vbtn.drop").forEach(function (x) { x.classList.remove("drop"); }); });
-  document.addEventListener("dragover", function (e) { var b = e.target.closest && e.target.closest("[data-drop]"); if (b) { e.preventDefault(); b.classList.add("drop"); } });
-  document.addEventListener("dragleave", function (e) { var b = e.target.closest && e.target.closest("[data-drop]"); if (b) b.classList.remove("drop"); });
+  document.addEventListener("dragstart", function (e) { var li = e.target.closest && e.target.closest(".th, .kcard"); if (!li) return; e.dataTransfer.setData("text/plain", li.dataset.id); e.dataTransfer.effectAllowed = "move"; li.classList.add("dragging"); });
+  document.addEventListener("dragend", function (e) { var li = e.target.closest && e.target.closest(".th, .kcard"); if (li) li.classList.remove("dragging"); document.querySelectorAll(".vbtn.drop,.kcol.drop").forEach(function (x) { x.classList.remove("drop"); }); });
+  document.addEventListener("dragover", function (e) { var b = e.target.closest && e.target.closest("[data-drop], .kcol"); if (b) { e.preventDefault(); b.classList.add("drop"); } });
+  document.addEventListener("dragleave", function (e) { var b = e.target.closest && e.target.closest("[data-drop], .kcol"); if (b && !b.contains(e.relatedTarget)) b.classList.remove("drop"); });
   document.addEventListener("drop", function (e) {
+    var kc = e.target.closest && e.target.closest(".kcol");
+    if (kc) { e.preventDefault(); kc.classList.remove("drop"); var kid = e.dataTransfer.getData("text/plain"); if (mail(kid) && colOf(mail(kid)) !== kc.dataset.col) act(agoa.setColonne(kid, kc.dataset.col), "Fil déplacé dans « " + kc.dataset.col + " »"); return; }
     var b = e.target.closest && e.target.closest("[data-drop]"); if (!b) return; e.preventDefault(); b.classList.remove("drop");
     var id = e.dataTransfer.getData("text/plain"), m = mail(id); if (!m) return;
     var to = b.dataset.drop === "none" ? "" : b.dataset.drop;

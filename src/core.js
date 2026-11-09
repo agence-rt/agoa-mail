@@ -8,6 +8,7 @@
 
 const STATUTS = [
   { id: "nouveau", label: "Nouveau" },
+  { id: "urgent", label: "Urgent" },
   { id: "atraiter", label: "À traiter" },
   { id: "attente", label: "En attente" },
   { id: "avalider", label: "À valider" },
@@ -114,18 +115,25 @@ function afterSend(mail, { destinataires, mode, by, ops, now, nbCci = 0 }) {
 
 const recus = (m) => (m.attendu || []).filter((d) => d.recu).length;
 
+/** Déplace un fil dans une colonne du kanban. */
+function setColonne(mail, colonne, { by, now }) {
+  if (mail.colonne === colonne) return { mail, journal: [], notifs: [] };
+  return { mail: { ...mail, colonne }, journal: [evt(by, `a déplacé le fil dans la colonne « ${colonne} »`, now)], notifs: [] };
+}
+
 /** Un message entrant. separate = arrivé dans un autre fil que celui d'origine (rapprochement). */
 function onIncoming(mail, incoming, { ops, now, separate = false, srcThread = "" }) {
   const m = { ...mail, nb: (mail.nb || 0) + 1, dernier: new Date(now).toISOString(), dernierExp: incoming.nom || incoming.email };
   const d = (m.attendu || []).find((x) => lc(x.email) === lc(incoming.email));
   if (d && !d.recu) m.attendu = m.attendu.map((x) => (x === d ? { ...x, recu: true, date: new Date(now).toISOString() } : x));
   const total = (m.attendu || []).length;
-  const reopen = m.statut === "attente" || m.statut === "traite";
+  const wasArchived = m.statut === "traite";
+  const reopen = m.statut === "attente" || wasArchived;
   if (reopen) { m.statut = "atraiter"; m.attenteDepuis = ""; }
   if (separate && srcThread) m.rapproches = [...(m.rapproches || []), { thread: srcThread, objet: incoming.objet || "", exp: incoming.email, date: new Date(now).toISOString() }];
   const who = incoming.nom || incoming.email;
   const compteur = total ? ` (${recus(m)}/${total})` : "";
-  const journal = [evt("", `${separate ? "mail séparé de " + who + " rapproché du fil (destinataire attendu)" : "réponse de " + who + " reçue"}${compteur}${reopen ? ", fil repassé à « À traiter »" : ""}`, now)];
+  const journal = [evt("", `${separate ? "mail séparé de " + who + " rapproché du fil (destinataire attendu)" : "réponse de " + who + " reçue"}${compteur}${reopen ? ", fil repassé à « À traiter »" + (wasArchived && m.colonne ? ", remis dans la colonne « " + m.colonne + " »" : "") : ""}`, now)];
   if (total && recus(m) === total) journal.push(evt("", "toutes les réponses attendues sont arrivées", now));
   const notifs = [];
   maybeNotif(notifs, handler(m, ops), "", `Réponse de ${who} sur « ${short(m.objet, 60)} »${compteur}${separate ? ", mail séparé rapproché" : ""}`, m.id, now, true);
@@ -146,4 +154,4 @@ function applyRules(rules, phase, statutPhase, { today, user }) {
     .map((r) => ({ champ: r.champ, action: r.action || "Remplacer", valeur: String(r.valeur || "").replace(/\{date du jour\}/gi, date).replace(/\{utilisateur\}/gi, user || "") }));
 }
 
-module.exports = { STATUTS, STATUT_LABEL, INDICE_RE, norm, short, splitOpCode, detect, archiOf, handler, transfer, setStatut, afterSend, onIncoming, findWaiting, recus, applyRules };
+module.exports = { STATUTS, STATUT_LABEL, INDICE_RE, norm, short, splitOpCode, detect, archiOf, handler, transfer, setStatut, setColonne, afterSend, onIncoming, findWaiting, recus, applyRules };

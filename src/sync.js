@@ -41,7 +41,7 @@ function planSync(threads, state) {
       mail = {
         id: th.id, objet: th.objet, expediteur: ext ? (ext.from.nom || ext.from.email) : "", expEmail: ext ? ext.from.email : "",
         alias, imm: det ? det.imm : "", op: det && det.op ? det.op : "", opRid: op ? op.rid : 0, phase: "",
-        statut: "nouveau", assigne: alias && aliasMap.get(lc(alias)) ? aliasMap.get(lc(alias)) : "", relance: "", attenteDepuis: "",
+        colonne: state.defaultCol || "", statut: "nouveau", assigne: alias && aliasMap.get(lc(alias)) ? aliasMap.get(lc(alias)) : "", relance: "", attenteDepuis: "",
         nb: th.messages.length, dernier: iso(th.messages[th.messages.length - 1].t), dernierExp: th.messages[th.messages.length - 1].from.nom || th.messages[th.messages.length - 1].from.email,
         lien: `https://mail.google.com/mail/u/0/#all/${th.id}`, notes: [], journal: [], attendu: [], rapproches: []
       };
@@ -65,7 +65,8 @@ function planSync(threads, state) {
     }
     byId.set(cur.id, cur); upserts.set(cur.id, cur);
   }
-  upserts.forEach((m) => { delete m.detection; });
+  const names = new Set(state.colNames || []);
+  upserts.forEach((m) => { delete m.detection; if (state.defaultCol && (!m.colonne || (names.size && !names.has(m.colonne)))) m.colonne = state.defaultCol; });
   return { upserts, notifs, skipped };
 }
 

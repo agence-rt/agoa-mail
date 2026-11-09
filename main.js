@@ -60,6 +60,7 @@ function registerIpc() {
   handle("mail:statut", (id, s) => svc.setStatut(id, s));
   handle("mail:transfer", (id, to, motif) => svc.transfer(id, to, motif));
   handle("mail:relance", (id, iso) => svc.setRelance(id, iso));
+  handle("mail:colonne", (id, nom) => svc.setColonne(id, nom));
   handle("mail:link", (id, l) => svc.link(id, l));
   handle("mail:note", (id, txt) => svc.addNote(id, txt));
   handle("mail:phase", (id, phase, st) => svc.setPhaseStatus(id, phase, st));

@@ -118,3 +118,53 @@ test("compte commun : « qui suis-je » retenu, actions refusées sans choix, je
   assert.equal(s2.auth.signedIn(), true);
   await fake.close(); svc.stopStore();
 });
+
+test("kanban : nouveau fil en « To do », déplacement, archivage puis réponse = retour dans la colonne", async () => {
+  const threads = [{ id: "k1", messages: [gm("m1", NOW - 9000, "x@foncia.fr", "agence@remithollet.fr", "Chantier DELTA14-A")] }];
+  const { fake, svc } = await boot(threads);
+  await svc.store.create("colonnes", { ordre: 1, libelle: "To do", couleur: "Gris", actif: true, defaut: true });
+  await svc.store.create("colonnes", { ordre: 2, libelle: "Chantier", couleur: "Bleu", actif: true, defaut: false });
+  await svc.reload();
+  assert.equal(svc.state().kanban, true);
+  await svc.syncGmail();
+  assert.equal(svc.data.mails[0].colonne, "To do");
+  await svc.setColonne("k1", "Chantier");
+  assert.equal(svc.data.mails[0].colonne, "Chantier");
+  await svc.setStatut("k1", "traite");                       // archivé : la colonne est conservée
+  assert.equal(svc.data.mails[0].colonne, "Chantier");
+  threads[0].messages.push(gm("m2", NOW, "x@foncia.fr", "agence@remithollet.fr", "Re: Chantier DELTA14-A"));
+  await svc.syncGmail();
+  const m = svc.data.mails[0];
+  assert.equal(m.statut, "atraiter"); assert.equal(m.colonne, "Chantier");
+  assert.ok(m.journal.some((j) => /remis dans la colonne « Chantier »/.test(j.texte)));
+  await assert.rejects(svc.setColonne("k1", "Inconnue"), (e) => e.code === "not_found");
+  await fake.close(); svc.stopStore();
+});
+
+test("kanban : supprimer une colonne renvoie ses fils dans la colonne par défaut ; la colonne par défaut est protégée", async () => {
+  const { fake, svc } = await boot([{ id: "k2", messages: [gm("m1", NOW, "x@foncia.fr", "agence@remithollet.fr", "RDV DELTA14-A")] }]);
+  await svc.store.create("colonnes", { ordre: 1, libelle: "To do", couleur: "Gris", actif: true, defaut: true });
+  await svc.store.create("colonnes", { ordre: 2, libelle: "AO", couleur: "Violet", actif: true, defaut: false });
+  await svc.reload(); await svc.syncGmail();
+  await svc.setColonne("k2", "AO");
+  await assert.rejects(svc.removeRecord("colonnes", "To do"), (e) => e.code === "forbidden");
+  await svc.removeRecord("colonnes", "AO");
+  assert.equal(svc.data.mails[0].colonne, "To do");
+  await svc.saveRecord("colonnes", { libelle: "Étude", couleur: "Bleu", ordre: 2, actif: true, defaut: false });
+  await svc.saveRecord("colonnes", { libelle: "Étude 2", _renameFrom: "Étude", couleur: "Bleu", ordre: 2, actif: true, defaut: false });
+  assert.deepEqual(svc.data.colonnes.map((c) => c.libelle), ["To do", "Étude 2"]);
+  await fake.close(); svc.stopStore();
+});
+
+test("kanban : sans la feuille Colonnes, l'application fonctionne avec « To do » seul et refuse les déplacements", async () => {
+  const fake = await makeFake();
+  delete fake.sheets[config.ragic.sheets.colonnes.path]; delete fake.schema[config.ragic.sheets.colonnes.path];
+  const store = { google_refresh: "r", google_profile: JSON.stringify({ email: "agence@remithollet.fr", name: "A" }), me: "Dieu" };
+  const svc = new Services({ vault: { get: (k) => store[k], set: (k, v) => { store[k] = v; } }, googleClient: { clientId: "c", clientSecret: "s" }, fetchImpl: googleStub([]), ragicProtocol: "http", openExternal() {}, connections: { ragic: { key: "KEY", host: fake.host, apname: "agoa" } } });
+  await svc.startStore();
+  assert.equal(svc.error, null, svc.error && svc.error.message);
+  await svc.store.create("collaborateurs", { nom: "Dieu", actif: true }); await svc.reload();
+  assert.equal(svc.state().kanban, false); assert.deepEqual(svc.data.colonnes.map((c) => c.libelle), ["To do"]);
+  await assert.rejects(svc.setColonne("x", "To do"), (e) => e.code === "no_kanban");
+  await fake.close(); svc.stopStore();
+});

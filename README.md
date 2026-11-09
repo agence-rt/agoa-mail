@@ -27,13 +27,14 @@ Les listes (Réponses attendues, Notes, Journal, Fils rapprochés) sont des cham
 
 | Feuille | Champs |
 |---|---|
-| **Mails** (`/mails/2`) | Thread ID, Objet, Expéditeur, E-mail expéditeur, Alias destinataire, Immeuble, Opération (texte), ID opération Ragic, Phase concernée, Statut, Pris en charge par, Relance, En attente depuis, Nb messages, Dernier message, Dernier expéditeur, Lien Gmail, Modifié par, Réponses attendues, Notes, Journal, Fils rapprochés |
+| **Mails** (`/mails/2`) | Thread ID, Objet, Expéditeur, E-mail expéditeur, Alias destinataire, Immeuble, Opération (texte), ID opération Ragic, Phase concernée, Statut (Nouveau / Urgent / A traiter / En attente / A valider / Traité), Pris en charge par, Relance, En attente depuis, Nb messages, Dernier message, Dernier expéditeur, Lien Gmail, **Colonne** (texte), Modifié par, Réponses attendues, Notes, Journal, Fils rapprochés |
 | **Collaborateurs** | Nom, E-mail, Fonction, Valideur, Actif |
 | **Phases** | Ordre, Libellé, Actif |
 | **Statuts de phase** | Ordre, Libellé, Couleur, Statut système |
 | **Alias** | Adresse, Collaborateur par défaut |
 | **Avancement opérations** | Clé, Code opération, Immeuble, Phase, Statut de phase, Date, Mis à jour par, Fil (Thread ID), ID opération Ragic |
 | **Règles de synchronisation** | Phase, Statut de phase, Champ OPERATIONS visé, ID du champ (facultatif), Action, Valeur, Actif |
+| **Colonnes** (`/mails/10`, kanban) | Ordre (nombre), Libellé (texte), Couleur (Gris/Bleu/Orange/Violet/Vert/Rouge), Actif (case), Par défaut (case). Créer une ligne « To do » avec Actif et Par défaut cochés |
 | **Notifications** | Clé, Pour, De, Date, Texte, Fil (Thread ID), Lue |
 
 Chemins des feuilles : ajuster `src/config.js` (ou variable `AGOA_ML_PATHS`, JSON) une fois les feuilles créées.
