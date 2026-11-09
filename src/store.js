@@ -118,7 +118,7 @@ class MailStore extends EventEmitter {
       nrid = this.rids[name] && this.rids[name].get(data[key]);
       if (!nrid) {
         const why = await this._diagnose(name, fields);
-        throw new Error(`Ragic n’a pas créé la fiche dans « ${name} » (${def.path}, ${Object.keys(fields).length} champs envoyés ; réponse : ${JSON.stringify(this.client.lastCreate).slice(0, 160)}). ${why}`);
+        throw new Error(`Ragic n’a pas créé la fiche dans « ${name} » (${def.path}, ${Object.keys(fields).length} champs envoyés ; réponse : ${JSON.stringify(this.client.lastCreate).slice(0, 160)} ; serveur ${this.client.host}${this.client.redirected ? ", redirigé vers " + this.client.redirected.slice(0, 80) : ""}). ${why}`);
       }
     }
     this.rids[name].set(data[key], nrid);

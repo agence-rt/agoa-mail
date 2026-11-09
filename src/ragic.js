@@ -23,11 +23,20 @@ class RagicClient {
   async _call(method, url, body, tries = 3) {
     let res, text;
     try {
-      res = await this.fetch(url, {
-        method,
-        headers: body ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
-        body: body ? new URLSearchParams(body).toString() : undefined
-      });
+      let target = url;
+      for (let hop = 0; ; hop++) {
+        // Écriture : on suit soi-même les redirections en gardant POST (un 301/302 ferait sinon relire la feuille au lieu d'y écrire)
+        res = await this.fetch(target, {
+          method,
+          headers: body ? { "Content-Type": "application/x-www-form-urlencoded" } : undefined,
+          body: body ? new URLSearchParams(body).toString() : undefined,
+          redirect: body ? "manual" : "follow"
+        });
+        if (body && res.status >= 300 && res.status < 400 && res.headers && res.headers.get && res.headers.get("location") && hop < 4) {
+          target = new URL(res.headers.get("location"), target).toString(); this.redirected = target.replace(/APIKey=[^&]*/, "APIKey=***"); continue;
+        }
+        break;
+      }
       text = await res.text();
     } catch (e) {
       throw new RagicError("network", "Ragic est injoignable : " + (e && e.message || e));
