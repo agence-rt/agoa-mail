@@ -12,6 +12,8 @@ module.exports = {
   allowedDomain: "remithollet.fr",
   aliases: ["etudes@remithollet.fr", "comptabilite@remithollet.fr", "secretariat@remithollet.fr"],
   googleScopes: ["openid", "email", "profile", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"],
+  /* valeurs de la liste « Statut » de la feuille Mails */
+  statutsRagic: { nouveau: "Nouveau", atraiter: "A traiter", attente: "En attente", avalider: "A valider", traite: "Traité" },
   gmailQuery: "in:inbox OR in:sent",
   syncMs: 60000,
   ragic: {
@@ -44,8 +46,8 @@ module.exports = {
         cle: { label: "Clé" }, pour: { label: "Pour" }, de: { label: "De" }, date: { label: "Date" }, texte: { label: "Texte" }, thread: { label: "Fil (Thread ID)" }, lue: { label: "Lue" } } }
     },
     /* feuilles existantes en lecture : identifiants connus (le schéma est relu si la clé le permet) */
-    immeubles: { path: "/agoa/3", fields: { code: { label: "code" }, syndic: { label: "syndic" }, emailGest: { label: "E-mail gestionnaire", optional: true }, emailAssist: { label: "assistant(e) email", optional: true } } },
+    immeubles: { path: "/agoa/3", fields: { code: { label: "code" }, syndic: { label: "syndic" }, emailGest: { label: "E-mail gestionnaire", optional: true }, emailAssist: { label: "E-mail assistant(e)", optional: true } } },
     operations: { path: "/operations/10", code: 1000295, imm: 1000278, indice: 1000279, statut: 1003061, architecte: 1001784, suivi: 1001758, avancement: 1001618 },
-    syndics: { path: "/agoa/1", fields: { nom: { label: "Syndic", optional: true }, email: { label: "Email" } } }
+    syndics: { path: "/agoa/1", fields: { nom: { label: "Nom", optional: true }, email: { label: "Email" } } }
   }
 };

@@ -3,6 +3,7 @@
    Les listes (notes, journal, réponses attendues, fils rapprochés) sont stockées en JSON dans des champs texte. */
 const { EventEmitter } = require("events");
 const { norm } = require("./core");
+const config = require("./config");
 
 const TRUE_RE = /^(yes|oui|true|1|x|vrai|on)$/i;
 const pad = (n) => String(n).padStart(2, "0");
@@ -14,7 +15,7 @@ const fromRagicDT = (s) => {
 
 /* type de chaque champ logique (str par défaut) */
 const TYPES = {
-  attendu: "json", notes: "json", journal: "json", rapproches: "json",
+  statut: "statut", attendu: "json", notes: "json", journal: "json", rapproches: "json",
   nb: "num", opRid: "num", ordre: "num",
   valideur: "bool", actif: "bool", lue: "bool", systeme: "bool",
   dernier: "dt", attenteDepuis: "dt", date: "dt", relance: "dt"
@@ -24,6 +25,10 @@ const conv = {
   num: { r: (v) => { const n = Number(String(v == null ? "" : v).replace(",", ".")); return String(v == null ? "" : v).trim() !== "" && Number.isFinite(n) ? n : 0; }, w: (v) => (v === "" || v == null || v === 0 ? "" : String(v)) },
   bool: { r: (v) => TRUE_RE.test(String(v == null ? "" : v).trim()), w: (v, c) => (v ? c.boolTrue : c.boolFalse) },
   dt: { r: fromRagicDT, w: (v) => (v ? toRagicDT(v) : "") },
+  statut: {
+    r: (v) => { const k = norm(v); const hit = Object.entries(config.statutsRagic).find(([id, l]) => norm(l) === k || id === k || norm(l).replace(/\s+/g, "-") === k); return hit ? hit[0] : "nouveau"; },
+    w: (v) => config.statutsRagic[v] || String(v || "")
+  },
   json: { r: (v) => { try { const o = JSON.parse(String(v || "")); return Array.isArray(o) ? o : []; } catch (e) { return []; } }, w: (v) => (Array.isArray(v) && v.length ? JSON.stringify(v) : "") }
 };
 const typeOf = (k) => TYPES[k] || "str";
