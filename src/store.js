@@ -48,10 +48,11 @@ class MailStore extends EventEmitter {
   async resolveFields() {
     const problems = [];
     const names = [...Object.keys(this.cfg.sheets), "immeubles", "syndics"];
-    for (const name of names) {
+    const schemas = await Promise.all([...names.map((n) => this.client.schema(this.sheetDef(n).path).then((v) => ({ v }), (e) => ({ e }))), this.client.schema(this.cfg.operations.path).then((v) => ({ v }), (e) => ({ e }))]);   // tous les schémas en parallèle
+    for (const [i, name] of names.entries()) {
       const def = this.sheetDef(name);
       let byLabel = new Map();
-      try { (await this.client.schema(def.path)).forEach((x) => byLabel.set(norm(x.fieldName), x.fieldId)); }
+      try { if (schemas[i].e) throw schemas[i].e; schemas[i].v.forEach((x) => byLabel.set(norm(x.fieldName), x.fieldId)); }
       catch (e) {
         if (e.code === "auth" && e.status === 401) throw e;
         if (def.optional) { this.f[name] = null; continue; }
@@ -67,7 +68,7 @@ class MailStore extends EventEmitter {
       if (missing.length) problems.push(`${def.path} (${name}) : champ(s) manquant(s) ${missing.map((m) => "« " + m + " »").join(", ")}`);
       this.f[name] = map;
     }
-    try { (await this.client.schema(this.cfg.operations.path)).forEach((x) => this.opFields.set(norm(x.fieldName), Number(x.fieldId))); } catch (e) { this.log("schéma OPERATIONS illisible : " + e.message); }
+    const so = schemas[names.length]; if (so.e) this.log("schéma OPERATIONS illisible : " + so.e.message); else so.v.forEach((x) => this.opFields.set(norm(x.fieldName), Number(x.fieldId)));
     if (problems.length) { const err = new Error("Base Ragic incomplète : " + problems.join(" ; ") + "."); err.code = "missing_field"; err.problems = problems; throw err; }
   }
 

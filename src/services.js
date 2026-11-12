@@ -78,14 +78,23 @@ class Services {
       await this.store.resolveFields();
       await this.reload();
       this.ready = true; this.error = null;
-      this.timers.push(setInterval(() => this.reload().catch((e) => this.log("rechargement : " + e.message)), config.ragic.pollMs));
+      this.timers.push(setInterval(() => this.reload("live").catch((e) => this.log("rechargement : " + e.message)), config.ragic.pollMs));
     } catch (e) { this.error = { code: e.code || "error", message: e.message, problems: e.problems }; this.ready = false; this.store = null; }
     finally { this.starting = false; }
   }
   stopStore() { this.timers.forEach(clearInterval); this.timers = []; this.store = null; this.ready = false; }
 
-  async reload() {
+  /** Recharge depuis Ragic. « live » : fils, notifications, avancement (3 requêtes). « all » : tout (référentiels compris, ~12 requêtes). */
+  async reload(scope = "all") {
     const s = this.store; if (!s) return;
+    if (scope === "live" && this._staticAt) {
+      const [mails, notifications, avancement] = await Promise.all([s.all("mails"), s.all("notifications"), s.all("avancement")]);
+      this.data = { ...this.data, mails, notifications, avancement };
+      this.emit();
+      if (Date.now() - this._staticAt > config.ragic.staticMs) this.reload("all").catch((e) => this.log("rechargement : " + e.message));
+      return;
+    }
+    this._staticAt = Date.now();
     const [mails, colonnes, collaborateurs, phases, statutsPhase, alias, avancement, regles, notifications, immeubles, syndics, ops] = await Promise.all([
       s.all("mails"), s.all("colonnes"), s.all("collaborateurs"), s.all("phases"), s.all("statutsPhase"), s.all("alias"), s.all("avancement"), s.all("regles"), s.all("notifications"), s.all("immeubles"), s.all("syndics"), s.operations()
     ]);
@@ -119,23 +128,29 @@ class Services {
     this.requireSession(); const s = this.requireStore();
     const list = await this.gmail.listThreads({ q: config.gmailQuery, max: 100 });
     const known = new Map(this.data.mails.map((m) => [m.id, m]));
+    this._hist = this._hist || new Map();
+    const todo = list.filter((t) => !(t.historyId && this._hist.get(t.id) === t.historyId && known.has(t.id)));   // fil inchangé depuis la dernière synchro : pas de relecture Gmail
     const threads = [];
-    for (const t of list) { threads.push(await this.gmail.getThread(t.id)); }
+    for (let i = 0; i < todo.length; i += 6) threads.push(...await Promise.all(todo.slice(i, i + 6).map((t) => this.gmail.getThread(t.id).then((g) => { if (t.historyId) this._hist.set(t.id, t.historyId); return g; }))));
     const fresh = threads.filter((t) => { const k = known.get(t.id); return !k || t.messages.length > (k.nb || 0) || (this.data.mails.some((m) => (m.rapproches || []).some((r) => r.thread === t.id))); });
     const plan = planSync(fresh, { mails: this.data.mails, ops: this.data.ops, immeubles: this.data.immeubles, syndics: this.data.syndics, aliases: this.data.alias.map((a) => ({ adresse: a.adresse, collaborateur: a.collaborateur })), aliasList: config.aliases, agencyEmails: [config.mailbox], now: Date.now(), defaultCol: this.defaultColumn(), colNames: this.data.colonnes.map((c) => c.libelle) });
-    for (const m of plan.upserts.values()) await s.upsert("mails", { ...m, modifiePar: "Automatique" });
-    for (const n of plan.notifs) await s.create("notifications", { cle: uid(), pour: n.pour, de: n.de, date: new Date(n.t).toISOString(), texte: n.texte, thread: n.thread, lue: false });
-    if (plan.upserts.size || plan.notifs.length) await this.reload();
+    const ups = [...plan.upserts.values()];
+    for (let i = 0; i < ups.length; i += 4) await Promise.all(ups.slice(i, i + 4).map((m) => s.upsert("mails", { ...m, modifiePar: "Automatique" })));
+    for (let i = 0; i < plan.notifs.length; i += 4) await Promise.all(plan.notifs.slice(i, i + 4).map((n) => s.create("notifications", { cle: uid(), pour: n.pour, de: n.de, date: new Date(n.t).toISOString(), texte: n.texte, thread: n.thread, lue: false })));
+    if (plan.upserts.size || plan.notifs.length) await this.reload("live");
     return { threads: threads.length, updated: plan.upserts.size, notifs: plan.notifs.length };
   }
 
   /* ---------- actions ---------- */
+  /** Écrit un fil modifié. L'écran est mis à jour tout de suite (copie locale), l'écriture Ragic suit sans tout recharger ; en cas d'échec on relit Ragic. */
   async _apply(mail, r, { by } = {}) {
     const s = this.requireStore(), who = by || this.who(), now = Date.now();
     const m = { ...r.mail, journal: [...(r.mail.journal || []), ...r.journal.map((j) => ({ ...j, par: j.par || who }))], modifiePar: who };
-    await s.upsert("mails", m);
-    for (const n of r.notifs) await s.create("notifications", { cle: uid(), pour: n.pour, de: n.de || who, date: new Date(n.t || now).toISOString(), texte: n.texte, thread: n.thread, lue: false });
-    await this.reload();
+    const notifs = r.notifs.map((n) => ({ cle: uid(), pour: n.pour, de: n.de || who, date: new Date(n.t || now).toISOString(), texte: n.texte, thread: n.thread, lue: false }));
+    this.data = { ...this.data, mails: this.data.mails.map((x) => (x.id === m.id ? { ...x, ...m } : x)), notifications: [...notifs, ...this.data.notifications] };
+    this.emit();
+    try { await Promise.all([s.upsert("mails", m), ...notifs.map((n) => s.create("notifications", n))]); }
+    catch (e) { await this.reload("live").catch(() => {}); throw e; }
     return m;
   }
   mailById(id) { const m = this.data.mails.find((x) => x.id === id); if (!m) throw Object.assign(new Error("Fil introuvable."), { code: "not_found" }); return m; }
@@ -180,6 +195,7 @@ class Services {
     const r = { mail: { ...m, phase }, journal: [{ t: now, par: by, texte: `a passé la phase « ${phase} » de ${code} à « ${statutPhase} »${applied.applied ? " (fiche OPERATIONS mise à jour)" : o ? "" : " (opération pas encore dans Ragic : information conservée)"}` }], notifs: [] };
     const a = C.archiOf(m, this.data.ops); if (a && a !== by) r.notifs.push({ pour: a, de: by, t: now, texte: `Phase « ${phase} » de ${code} : ${statutPhase} (par ${by})`, thread: id });
     await this._apply(m, r);
+    await this.reload("live");   // l'avancement vient d'être écrit : on le relit
     return applied;
   }
 
@@ -263,7 +279,7 @@ class Services {
     await this.reload();
   }
 
-  async markRead(cle) { const s = this.requireStore(); const n = this.data.notifications.find((x) => x.cle === cle); if (n) { await s.upsert("notifications", { ...n, lue: true }); await this.reload(); } }
+  async markRead(cle) { const s = this.requireStore(); const n = this.data.notifications.find((x) => x.cle === cle); if (n) { this.data = { ...this.data, notifications: this.data.notifications.map((x) => (x.cle === cle ? { ...x, lue: true } : x)) }; this.emit(); try { await s.upsert("notifications", { ...n, lue: true }); } catch (e) { await this.reload("live").catch(() => {}); throw e; } } }
 }
 
 module.exports = { Services, readGoogleClient };

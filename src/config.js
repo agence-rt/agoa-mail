@@ -20,7 +20,8 @@ module.exports = {
   ragic: {
     apname: "agoa",
     hosts: ["www.ragic.com", "eu2.ragic.com", "na3.ragic.com", "ap5.ragic.com"],
-    pollMs: 8000,
+    pollMs: 20000,         // fils, notifications, avancement
+    staticMs: 600000,      // référentiels (immeubles, opérations, collaborateurs…) : toutes les 10 min
     boolTrue: "Yes", boolFalse: "",
     sheets: {
       mails: { path: P("mails", "/mails/2"), key: "id", fields: {
